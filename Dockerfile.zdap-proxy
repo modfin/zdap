@@ -1,0 +1,10 @@
+FROM golang:1.16.6-alpine3.14 AS builder
+
+
+COPY . /src
+RUN cd /src && go build -o /zdap-proxyd /src/cmd/zdap-proxyd/zdap-proxyd.go
+
+FROM alpine:3.14
+RUN apk add --no-cache tzdata ca-certificates
+COPY --from=builder /zdap-proxyd /
+CMD /zdap-proxyd

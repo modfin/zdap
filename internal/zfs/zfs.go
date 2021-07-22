@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"zdap/internal/utils"
 )
 
 func NewZFS(pool string) *ZFS {
@@ -20,7 +21,9 @@ type ZFS struct {
 	pool string
 }
 
-var cloneReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}_[0-9]{2}_[0-9]{2}-clone-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}_[0-9]{2}_[0-9]{2}$")
+
+
+var cloneReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}_[0-9]{2}_[0-9]{2}-clone-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}_[0-9]{2}_[0-9]{2}_[a-zA-Z]{3}$")
 var snapReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}_[0-9]{2}_[0-9]{2}@snap$")
 var baseReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}_[0-9]{2}_[0-9]{2}$")
 
@@ -236,7 +239,7 @@ func (z *ZFS) CloneDataset(snapName string) (string, string, error) {
 		return "", "", errors.New("could not find snapshot to clone")
 	}
 
-	cloneName := fmt.Sprintf("%s-clone-%s", dsName, time.Now().Format("2006-01-02T15_04_05"))
+	cloneName := fmt.Sprintf("%s-clone-%s_%s", dsName, time.Now().Format("2006-01-02T15_04_05"), utils.RandStringRunes(3))
 	clone, err := snap.Clone(fmt.Sprintf("%s/%s", z.pool, cloneName), nil)
 	if err != nil {
 		return "", "", err

@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/caarlos0/env"
 	"io"
+	"log"
 	"net"
 	"strings"
 	"sync"
@@ -13,8 +15,8 @@ import (
 func main() {
 
 	p := TCPProxy{
-		ListenPort:  1337,
-		RecvAddress: "localhost:9200",
+		ListenPort:    Config().ListenPort,
+		TargetAddress: Config().TargetAddress,
 		Metric: &Metric{
 			CreatedAt: time.Now(),
 		},
@@ -29,6 +31,26 @@ func check(err error) {
 	}
 }
 
+type conf struct {
+	ListenPort    int    `env:"LISTEN_PORT"`
+	TargetAddress string `env:"TARGET_ADDRESS"`
+}
+
+var (
+	once sync.Once
+	cfg  conf
+)
+
+func Config() *conf {
+	once.Do(func() {
+		cfg = conf{}
+		if err := env.Parse(&cfg); err != nil {
+			log.Panic("Couldn't parse Config from env: ", err)
+		}
+	})
+	return &cfg
+}
+
 type Metric struct {
 	mu               sync.Mutex
 	ActiveConnection int       `json:"active_connection"`
@@ -41,10 +63,9 @@ type Metric struct {
 }
 
 type TCPProxy struct {
-	ListenPort  int
-	RecvAddress string
-
-	Metric *Metric
+	ListenPort    int
+	TargetAddress string
+	Metric        *Metric
 }
 
 func (s TCPProxy) startMetricServer() {
@@ -86,7 +107,7 @@ func (s TCPProxy) startMetricServer() {
 func (s TCPProxy) Start() {
 
 	go s.startMetricServer()
-	fmt.Printf("Starting TCP Procy server at tcp://0.0.0.0:%d\n", s.ListenPort)
+	fmt.Printf("Starting TCP Procy server at tcp://0.0.0.0:%d, targeting tcp://%s\n", s.ListenPort, s.TargetAddress)
 	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", s.ListenPort))
 	check(err)
 	defer listener.Close()
@@ -113,8 +134,12 @@ func (s TCPProxy) proxy(in net.Conn) {
 	s.Metric.mu.Unlock()
 
 	fmt.Println(" Dialing recipient")
-	out, err := net.Dial("tcp", s.RecvAddress)
-	check(err)
+	out, err := net.Dial("tcp", s.TargetAddress)
+	if err != nil{
+		fmt.Println("could not dial target", s.TargetAddress)
+		_ = in.Close()
+		return
+	}
 
 	go func() {
 		w, _ := io.Copy(out, in)

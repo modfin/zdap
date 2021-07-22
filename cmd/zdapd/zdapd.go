@@ -9,15 +9,18 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"zdap/internal"
 	"zdap/internal/config"
+	"zdap/internal/utils"
 	"zdap/internal/zfs"
 )
 
@@ -40,8 +43,6 @@ func main() {
 	})
 	check(err)
 
-	fmt.Println(resourcesPaths)
-
 	var resources []internal.Resource
 	for _, path := range resourcesPaths {
 		b, err := ioutil.ReadFile(path)
@@ -57,45 +58,60 @@ func main() {
 	check(err)
 
 	if len(os.Args) > 1 {
-		if os.Args[1] == "destroy" {
+		switch os.Args[1] {
+		case "destroy":
 			Destroy(cli, z)
 			os.Exit(0)
+		case "list":
+			var l []string
+			switch len(os.Args) {
+			case 2:
+				l, err = z.List()
+				check(err)
+			case 3:
+				switch os.Args[2] {
+				case "bases":
+					l, err = z.ListBases()
+					check(err)
+				case "snaps":
+					l, err = z.ListSnaps()
+					check(err)
+				case "clones":
+					l, err = z.ListClones()
+					check(err)
+				}
+			}
+			sort.Strings(l)
+			fmt.Println(strings.Join(l, "\n"))
+			os.Exit(0)
+		case "test-bases":
+			for _, r := range resources {
+				CreateBase(r, cli, z)
+			}
+			os.Exit(0)
+		case "test-clones":
+			for _, r := range resources {
+				CreateClone(r, cli, z)
+			}
+			os.Exit(0)
 		}
+
 	}
-
-	fmt.Println("List", fmt.Sprint(z.List()))
-	fmt.Println("Bases", fmt.Sprint(z.ListBases()))
-	fmt.Println("Snaps", fmt.Sprint(z.ListSnaps()))
-	fmt.Println("Clones", fmt.Sprint(z.ListClones()))
-
-	for _, r := range resources{
-		CreateBase(r, cli, z)
-	}
-
-	for _, r := range resources {
-		CreateClone(r, cli, z)
-	}
-
-	for _, r := range resources {
-		CreateClone(r, cli, z)
-	}
-
 
 }
 
 func Destroy(cli *client.Client, z *zfs.ZFS) {
 
 	var singel bool
-	var toDestroy string = "zdap-"
+	var toDestroy = "zdap-"
 	if len(os.Args) > 2 {
 		toDestroy = os.Args[2]
 		singel = true
 	}
 
-
-	if singel{
+	if singel {
 		fmt.Println("Destroying Container", toDestroy)
-	}else{
+	} else {
 		fmt.Println("Destroying Containers")
 	}
 
@@ -126,18 +142,29 @@ func Destroy(cli *client.Client, z *zfs.ZFS) {
 
 	}
 
-	if singel{
+	if singel {
 		fmt.Println("Destroying Volume", toDestroy)
 		check(z.Destroy(toDestroy))
-	}else{
+	} else {
 		fmt.Println("Destroying Volumes")
 		check(z.DestroyAll())
 	}
 
-
 }
 
 func CreateClone(r internal.Resource, cli *client.Client, z *zfs.ZFS) {
+
+	networks, err := cli.NetworkList(context.Background(), types.NetworkListOptions{})
+	check(err)
+	fmt.Println(networks)
+	var network types.NetworkResource
+	for _, n := range networks{
+		if n.Name == "zdap"{
+			network = n
+			break
+		}
+	}
+	fmt.Println(network)
 
 	name := r.Name
 	snaps, err := z.ListSnaps()
@@ -159,11 +186,16 @@ func CreateClone(r internal.Resource, cli *client.Client, z *zfs.ZFS) {
 
 	cloneName, path, err := z.CloneDataset(candidate)
 	check(err)
+	fmt.Println(" - clone name", cloneName)
 
 	resp, err := cli.ContainerCreate(context.Background(), &container.Config{
 		Image: r.Docker.Image,
 		Env:   r.Docker.Env,
 		Tty:   false,
+		Domainname: cloneName,
+		ExposedPorts: nat.PortSet{
+			nat.Port(fmt.Sprintf("%d/tcp", r.Docker.Port)): struct{}{},
+		},
 	}, &container.HostConfig{
 		RestartPolicy: container.RestartPolicy{
 			Name:              "unless-stopped",
@@ -176,13 +208,42 @@ func CreateClone(r internal.Resource, cli *client.Client, z *zfs.ZFS) {
 				Target: r.Docker.Volume,
 			},
 		},
-	}, nil, nil, cloneName)
+	}, nil,nil, cloneName)
 	check(err)
 
-	err = cli.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{})
+	check(cli.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{}))
+	check(cli.NetworkConnect(context.Background(), network.ID, resp.ID, nil))
+	fmt.Println(" - db container name", cloneName)
+
+	freeport, err := utils.GetFreePort()
 	check(err)
 
-	time.Sleep(2*time.Second)
+	resp, err = cli.ContainerCreate(context.Background(), &container.Config{
+		Image: "crholm/zdap-proxy:latest",
+		Env: []string{
+			fmt.Sprintf("LISTEN_PORT=%d", freeport),
+			fmt.Sprintf("TARGET_ADDRESS=%s:%d", cloneName, r.Docker.Port),
+		},
+		ExposedPorts: nat.PortSet{
+			nat.Port(fmt.Sprintf("%d/tcp", freeport)): struct{}{},
+			nat.Port(fmt.Sprintf("%d/udp", freeport)): struct{}{},
+		},
+		Domainname: fmt.Sprintf("%s-proxy", cloneName),
+
+	}, &container.HostConfig{
+		RestartPolicy: container.RestartPolicy{
+			Name:              "unless-stopped",
+			MaximumRetryCount: 0,
+		},
+		PortBindings: nat.PortMap{
+			nat.Port(fmt.Sprintf("%d/tcp", freeport)): []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d/tcp", freeport)}},
+			nat.Port(fmt.Sprintf("%d/udp", freeport)): []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d/udp", freeport)}},
+		},
+	}, nil, nil, fmt.Sprintf("%s-proxy", cloneName))
+	check(err)
+	check(cli.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{}))
+	check(cli.NetworkConnect(context.Background(), network.ID, resp.ID, nil))
+	fmt.Println(" - db proxy name", fmt.Sprintf("tcp://%s-proxy:%d", cloneName, freeport))
 
 }
 
