@@ -1,0 +1,15 @@
+
+
+name: postgres-soapbox
+docker:
+  image: postgres:13
+  port: 5432
+  volume: /var/lib/postgresql/data
+  env:
+    - POSTGRES_PASSWORD=qwerty
+
+  ## Health Check must exist in order to know when the container is really started
+  healthcheck: echo SELECT 1 | psql -U postgres
+cron: 15 6 * * *
+retrieval: ./postgres-soapbox.retrieval.sh
+creation: ./postgres-soapbox.creation.sh
