@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"zdap"
 	"zdap/internal"
@@ -22,7 +23,10 @@ import (
 	"zdap/internal/zfs"
 )
 
-func createBase(resourcePath string, r internal.Resource, docker *client.Client, z *zfs.ZFS) error {
+var baseCreationMutex = sync.Mutex{}
+func createBaseAndSnap(resourcePath string, r *internal.Resource, docker *client.Client, z *zfs.ZFS) error {
+	baseCreationMutex.Lock()
+	defer baseCreationMutex.Unlock()
 
 	runScript := func(script string, args ...string) (string, error) {
 		cmd := exec.Command(script, args...)
@@ -47,10 +51,10 @@ func createBase(resourcePath string, r internal.Resource, docker *client.Client,
 		Tty:   false,
 		Healthcheck: &container.HealthConfig{
 			Test:        []string{"CMD-SHELL", r.Docker.Healthcheck},
-			Interval:    10 * time.Second,
-			Timeout:     2 * time.Second,
-			StartPeriod: 3 * time.Second,
-			Retries:     2,
+			Interval:    1 * time.Second,
+			Timeout:     1 * time.Second,
+			StartPeriod: 1 * time.Second,
+			Retries:     1,
 		},
 	}, &container.HostConfig{
 		RestartPolicy: container.RestartPolicy{
@@ -92,9 +96,9 @@ func createBase(resourcePath string, r internal.Resource, docker *client.Client,
 	if err != nil {
 		return err
 	}
-	fmt.Println(file)
 
-	fmt.Println("Creating database")
+	fmt.Print("Creating database...")
+	defer fmt.Println(" done")
 	_, err = runScript(filepath.Join(resourcePath, r.Creation), file, name)
 	if err != nil {
 		return err
@@ -159,7 +163,7 @@ func ensureNetwork(cli *client.Client) (*types.NetworkResource, error) {
 	return findNetwork(cli)
 }
 
-func createClone(snap string, r internal.Resource, docker *client.Client, z *zfs.ZFS) (*zdap.Clone, error) {
+func createClone(snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS) (*zdap.Clone, error) {
 
 	net, err := ensureNetwork(docker)
 	if err != nil {

@@ -35,6 +35,27 @@ func NewCore(configDir string, docker *client.Client, z *zfs.ZFS) (*Core, error)
 	err := c.reload()
 	return c, err
 }
+func (c *Core) Start() error{
+	for _, r := range c.resources {
+		r := r
+		fmt.Println("[CRON] Adding cron job", r.Name, "base resource,", r.Cron)
+
+		_, err := c.cron.AddFunc(r.Cron, func() {
+			fmt.Println("[CRON] Starting cron job to create", r.Name, "base resource")
+			err := createBaseAndSnap(c.configDir, &r, c.docker, c.z)
+			if err != nil {
+				fmt.Println("[CRON] Error: could not run cronjob to create base,", err)
+			}
+		})
+		if err != nil {
+			return fmt.Errorf("could not create cron for '%s', %w", r.Cron, err)
+		}
+	}
+
+	c.cron.Start()
+	return nil
+}
+
 
 func (c *Core) ExecAllCronjobs(){
 	fmt.Println("[CRON] Executing all cron jobs now")
@@ -51,6 +72,7 @@ func (c *Core) ExecAllCronjobs(){
 func (c *Core) reload() error {
 	if c.cron != nil {
 		c.cron.Stop()
+		defer c.Start()
 	}
 	newCron := cron.New()
 
@@ -59,32 +81,15 @@ func (c *Core) reload() error {
 		return err
 	}
 
-	for _, r := range newResources {
-		r := r
-		fmt.Println("[CRON] Adding cron job", r.Name, "base resource,", r.Cron)
-
-		_, err := newCron.AddFunc(r.Cron, func() {
-			fmt.Println("[CRON] Starting cron job to create", r.Name, "base resource")
-			err := createBase(c.configDir, r, c.docker, c.z)
-			if err != nil {
-				fmt.Println("[CRON] Error: could not run cronjob to create base,", err)
-			}
-		})
-		if err != nil {
-			return fmt.Errorf("could not create cron for '%s', %w", r.Cron, err)
-		}
-	}
-
 	c.cron = newCron
 	c.resources = newResources
 
-	c.cron.Start()
 	return nil
 }
 
 func loadResources(dir string) ([]internal.Resource, error) {
 
-	fmt.Println("[CORE] Loading resource from", dir)
+	//fmt.Println("[CORE] Loading resource from", dir)
 	var paths []string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if strings.HasSuffix(path, ".resource.yml") {
@@ -98,7 +103,7 @@ func loadResources(dir string) ([]internal.Resource, error) {
 
 	var resources []internal.Resource
 	for _, path := range paths {
-		fmt.Println("[CORE] Adding resource", path)
+		//fmt.Println("[CORE] Adding resource", path)
 		b, err := ioutil.ReadFile(path)
 		if err != nil {
 			return nil, err
@@ -117,6 +122,14 @@ func loadResources(dir string) ([]internal.Resource, error) {
 }
 
 
+func (c *Core) ResourcesExists(resource string ) bool {
+	for _, r := range c.GetResources(){
+		if r == resource{
+			return true
+		}
+	}
+	return false
+}
 
 func (c *Core) GetResources() []string {
 	var l []string
@@ -124,6 +137,36 @@ func (c *Core) GetResources() []string {
 		l = append(l, r.Name)
 	}
 	return l
+}
+
+func (c *Core) GetResourceClones(resourceName string)  (map[time.Time][]time.Time, error) {
+	clones, err := c.z.ListClones()
+	if err != nil {
+		return nil, err
+	}
+	var rclone = map[time.Time][]time.Time{}
+	for _, clone := range clones {
+		if !strings.HasPrefix(clone, fmt.Sprintf("zdap-%s-",resourceName)){
+			continue
+		}
+		timeStrings := zfs.TimeReg.FindAllString(clone, -1)
+		if len(timeStrings) != 2{
+			return nil, fmt.Errorf("clone name did not have 2 dates, %s", clone)
+		}
+		snaped, err := time.Parse(zfs.TimestampFormat, timeStrings[0])
+		if err != nil {
+			return nil, err
+		}
+		cloned, err := time.Parse(zfs.TimestampFormat, timeStrings[1])
+		if err != nil {
+			return nil, err
+		}
+
+		arr := rclone[snaped]
+		arr = append(arr, cloned)
+		rclone[snaped] = arr
+	}
+	return rclone, nil
 }
 
 func (c *Core) GetResourceSnaps(resourceName string) ([]time.Time, error) {
@@ -140,7 +183,7 @@ func (c *Core) GetResourceSnaps(resourceName string) ([]time.Time, error) {
 		if !snapReg.MatchString(snap){
 			continue
 		}
-		timeString := string(zfs.TimeReg.Find([]byte(snap)))
+		timeString := zfs.TimeReg.FindString(snap)
 		t, err := time.Parse(zfs.TimestampFormat, timeString)
 		if err != nil{
 			return nil, err
@@ -150,23 +193,33 @@ func (c *Core) GetResourceSnaps(resourceName string) ([]time.Time, error) {
 	return rsnap, nil
 }
 
-func (c *Core) CloneResource(resourceName string, at time.Time) (*zdap.Clone, error) {
-
-	var resource internal.Resource
-
+func (c *Core) getResource(resourceName string) *internal.Resource {
 	for _, r := range c.resources{
 		if r.Name == resourceName{
-			resource = r
-			break
+			return &r
 		}
 	}
-	if resource.Name == ""{
+	return nil
+}
+
+func (c *Core) CreateBaseAndSnap(resourceName string) error {
+	r := c.getResource(resourceName)
+	if r == nil{
+		return fmt.Errorf("could not find resource %s", resourceName)
+	}
+	return createBaseAndSnap(c.configDir, r, c.docker, c.z)
+}
+
+func (c *Core) CloneResource(resourceName string, at time.Time) (*zdap.Clone, error) {
+
+	r := c.getResource(resourceName)
+	if r == nil{
 		return nil, fmt.Errorf("could not find resource %s", resourceName)
 	}
 
 	snapName := c.z.GetDatasetSnapNameAt(resourceName, at)
 
-	return createClone(snapName, resource, c.docker, c.z)
+	return createClone(snapName, r, c.docker, c.z)
 }
 
 func (c *Core) DestroyClone(cloneName string) error {

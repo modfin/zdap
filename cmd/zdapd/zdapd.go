@@ -1,147 +1,426 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/urfave/cli/v2"
+	"os"
+	"sort"
+	"strings"
 	"time"
+	"zdap/internal/api"
 	"zdap/internal/config"
 	"zdap/internal/core"
+	"zdap/internal/utils"
 	"zdap/internal/zfs"
 )
 
-func check(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
 
 func main() {
 
-	configDir := config.Get().ConfigDir
-	z := zfs.NewZFS(config.Get().ZFSPool)
-	docker, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	check(err)
+	var err error
+	var app *core.Core
+	var docker *client.Client
+	var z *zfs.ZFS
 
-	app, err := core.NewCore(configDir, docker, z)
-	check(err)
-	app.ExecAllCronjobs()
+	load := func(c *cli.Context) error{
+		cfg := config.FromCli(c)
 
-	resources := app.GetResources()
-	for _, r := range resources{
-		snaps, err := app.GetResourceSnaps(r)
-		check(err)
-		var max time.Time
-		for _, s := range snaps{
-			if s.After(max) {
-				max = s
-			}
+		configDir := cfg.ConfigDir
+		z = zfs.NewZFS(cfg.ZPool)
+		docker, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+		if err != nil{
+			return err
 		}
-		clone, err := app.CloneResource(r, max)
-		check(err)
-		fmt.Printf("[Clone] %+v", clone)
+
+		app, err = core.NewCore(configDir, docker, z)
+		if err != nil{
+			return err
+		}
+		return nil
 	}
 
 
-	//if len(os.Args) > 1 {
-	//	switch os.Args[1] {
-	//	case "destroy":
-	//		Destroy(cli, z)
-	//		os.Exit(0)
-	//	case "list":
-	//		var l []string
-	//		switch len(os.Args) {
-	//		case 2:
-	//			l, err = z.List()
-	//			check(err)
-	//		case 3:
-	//			switch os.Args[2] {
-	//			case "bases":
-	//				l, err = z.ListBases()
-	//				check(err)
-	//			case "snaps":
-	//				l, err = z.ListSnaps()
-	//				check(err)
-	//			case "clones":
-	//				l, err = z.ListClones()
-	//				check(err)
-	//			}
-	//		}
-	//		sort.Strings(l)
-	//		fmt.Println(strings.Join(l, "\n"))
-	//		os.Exit(0)
-	//	case "test-bases":
-	//		for _, r := range resources {
-	//			CreateBase(r, cli, z)
-	//		}
-	//		os.Exit(0)
-	//	case "test-clones":
-	//		for _, r := range resources {
-	//			CreateClone(r, cli, z)
-	//		}
-	//		os.Exit(0)
-	//	}
-	//
-	//}
+	cliapp := &cli.App{
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name: "zpool",
+				Usage: "The zpool used for the zdap, can also be set by env ZFS_POOL=... ",
 
+			},
+			&cli.StringFlag{
+				Name: "config-dir",
+				Usage: "The dir where all the resource config is stored, can also be set by env CONFIG_DIR=...",
+			},
+			&cli.StringFlag{
+				Name: "network-address",
+				Usage: "The network address of which clients shall connect to, a ip address or a domain, can also be set by env NETWORK_ADDRESS=...",
+			},
+			&cli.IntFlag{
+				Name: "api-port",
+				Usage: "The port used to open a http api server, can also be set by env API_PORT=...",
+			},
+		},
+		Commands: []*cli.Command{
+			{
+				Name:  "serve",
+				Usage: "starts http daemon for clients to interact with",
+				Action: func(c *cli.Context) error {
+					return api.Start(config.Get(), app, docker, z)
+				},
+			},
+			{
+				Name:  "create",
+				Usage: "create things",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "snap",
+						Usage: "creates a snap of a resource",
+						Action: func(c *cli.Context) error {
+							if !c.Args().Present() {
+								return errors.New("resources to create snaps from must be provided")
+							}
+							for _, resource := range c.Args().Slice() {
+								err := app.CreateBaseAndSnap(resource)
+								if err != nil {
+									return err
+								}
+							}
+							return nil
+						},
+					},
+					{
+						Name: "clone",
+						Flags: []cli.Flag{
+							&cli.TimestampFlag{
+								Name:   "from",
+								Layout: utils.TimestampFormat,
+							},
+						},
+						Usage: "creates a snap of a resource",
+						Action: func(c *cli.Context) error {
+							if !c.Args().Present() {
+								return errors.New("resources to create a clone from must be provided")
+							}
+							if c.Args().Len() != 1 {
+								return errors.New("resources to create a clone from must be provided")
+							}
+
+							from := c.Timestamp("from")
+
+							resource := c.Args().First()
+
+							if from == nil {
+								times, err := app.GetResourceSnaps(resource)
+								if err != nil {
+									return err
+								}
+								if len(times) == 0 {
+									return errors.New("there seems to be no snaps available for resource")
+								}
+								sort.Slice(times, func(i, j int) bool {
+									return times[i].After(times[j])
+								})
+								from = &times[0]
+							}
+
+							clone, err := app.CloneResource(resource, *from)
+							if err != nil {
+								return err
+							}
+							fmt.Println("=== Clone ===")
+							fmt.Println(clone.YamlOverride(5432))
+
+							return nil
+						},
+					},
+				},
+			},
+			{
+				Name:  "list",
+				Usage: "lists things",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "resources",
+						Usage: "lists available resources / services that can be cloned",
+						Action: func(c *cli.Context) error {
+							fmt.Printf("== Resrources ==\n%s\n", strings.Join(app.GetResources(), "\n"))
+							return nil
+						},
+					},
+					{
+						Name:  "snaps",
+						Usage: "lists available snaps of resources services that can be cloned",
+						Action: func(c *cli.Context) error {
+
+							printSnap := func(resource string) error {
+								times, err := app.GetResourceSnaps(resource)
+								if err != nil {
+									return err
+								}
+								if len(times) == 0 {
+									return nil
+								}
+								sort.Slice(times, func(i, j int) bool {
+									return times[i].Before(times[j])
+								})
+								fmt.Println(resource)
+								for j, t := range times {
+									ochar := "├"
+									if j == len(times)-1{
+										ochar = "└"
+									}
+
+									fmt.Printf("%s @ %s\n", ochar, t.In(time.UTC).Format(utils.TimestampFormat))
+								}
+								return nil
+							}
+
+							fmt.Printf("== Snaps ==\n")
+							if c.Args().Present() {
+								return printSnap(c.Args().First())
+							}
+							resources := app.GetResources()
+							sort.Strings(resources)
+							for _, resource := range resources {
+								err = printSnap(resource)
+								if err != nil {
+									return err
+								}
+							}
+
+							return nil
+						},
+					},
+					{
+						Name:  "clones",
+						Usage: "lists clones that exist",
+						Action: func(c *cli.Context) error {
+
+							printClone := func(resource string) error {
+								times, err := app.GetResourceClones(resource)
+								if err != nil {
+									return err
+								}
+								if len(times) == 0 {
+									return nil
+								}
+								var keys []time.Time
+								for k, arr := range times {
+									keys = append(keys, k)
+									sort.Slice(arr, func(i, j int) bool {
+										return arr[i].Before(arr[j])
+									})
+								}
+
+								sort.Slice(keys, func(i, j int) bool {
+									return keys[i].Before(keys[j])
+								})
+								fmt.Println(resource)
+								for j, t := range keys {
+									ochar := "├"
+									ochar2 := "│"
+									if j == len(keys)-1{
+										ochar = "└"
+										ochar2 = " "
+									}
+									fmt.Printf("%s @ %s\n", ochar, t.In(time.UTC).Format(utils.TimestampFormat))
+									for i, c := range times[t] {
+										char := "├"
+										if i == len(times[t])-1 {
+											char = "└"
+										}
+
+										fmt.Printf("%s %s %s\n",ochar2, char, c.In(time.UTC).Format(utils.TimestampFormat))
+									}
+								}
+								return nil
+							}
+
+							fmt.Printf("== Clones ==\n")
+							if c.Args().Present() {
+								return printClone(c.Args().First())
+							}
+							resources := app.GetResources()
+							sort.Strings(resources)
+							for _, resource := range resources {
+								err = printClone(resource)
+								if err != nil {
+									return err
+								}
+							}
+
+							return nil
+						},
+					},
+				},
+			},
+			{
+				Name: "destroy",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "all",
+						Usage: "destroys all bases, snaps and clones along with any associated docker images",
+						Action: func(context *cli.Context) error {
+							return destroyAll(docker, z)
+						},
+					},
+					{
+						Name:  "clones",
+						Usage: "destroys all clones along with any associated docker images",
+						Action: func(context *cli.Context) error {
+							return destroyClones(docker, z)
+						},
+					},
+					{
+						Name:  "clone",
+						Usage: "destroys a clone specific clone along with any associated docker images",
+						Action: func(context *cli.Context) error {
+							clone := context.Args().First()
+							if !strings.Contains(clone, "-clone-") {
+								return errors.New("'destroy clone <name>' must contain a valid name")
+							}
+							return destroyClone(clone, docker, z)
+						},
+					},
+				},
+			},
+		},
+	}
+	cliapp.Before = load
+	err = cliapp.Run(os.Args)
+
+	if err != nil{
+		fmt.Printf("[Error] %v\n", err)
+	}
 }
 
-//func Destroy(cli *client.Client, z *zfs.ZFS) {
-//
-//	var singel bool
-//	var toDestroy = "zdap-"
-//	if len(os.Args) > 2 {
-//		toDestroy = os.Args[2]
-//		singel = true
-//	}
-//
-//	if singel {
-//		fmt.Println("Destroying Container", toDestroy)
-//	} else {
-//		fmt.Println("Destroying Containers")
-//	}
-//
-//	cs, err := cli.ContainerList(context.Background(), types.ContainerListOptions{All: true})
-//	check(err)
-//	for _, c := range cs {
-//		for _, name := range c.Names {
-//
-//
-//
-//			if strings.HasPrefix(name, "/"+toDestroy) || (toDestroy == "clones" && strings.Contains(name, "-clone-")) {
-//				if c.State == "running" {
-//					fmt.Println("- Killing", name)
-//					d := time.Millisecond
-//					check(cli.ContainerStop(context.Background(), c.ID, &d))
-//					w, e := cli.ContainerWait(context.Background(), c.ID, container.WaitConditionNotRunning)
-//
-//					select {
-//					case <-w:
-//					case err = <-e:
-//						check(err)
-//					}
-//				}
-//				fmt.Println("- Removing", name)
-//				check(cli.ContainerRemove(context.Background(), c.ID, types.ContainerRemoveOptions{
-//					Force: true,
-//				}))
-//			}
-//		}
-//
-//	}
-//
-//	if toDestroy ==  "clones"{
-//		clones, err := z.ListClones()
-//		check(err)
-//		for _, c := range clones{
-//			check(z.Destroy(c))
-//		}
-//	}else if singel {
-//		fmt.Println("Destroying Volume", toDestroy)
-//		check(z.Destroy(toDestroy))
-//	} else {
-//		fmt.Println("Destroying Volumes")
-//		check(z.DestroyAll())
-//	}
-//
-//}
+func destroyContainer(c types.Container, docker *client.Client) error {
+	name := c.ID
+	if len(c.Names) > 0 {
+		name = c.Names[0]
+	}
 
+	if c.State == "running" {
+		fmt.Println("- Killing", name)
+		d := time.Millisecond
+		err := docker.ContainerStop(context.Background(), c.ID, &d)
+		if err != nil {
+			return err
+		}
+		w, e := docker.ContainerWait(context.Background(), c.ID, container.WaitConditionNotRunning)
+
+		select {
+		case <-w:
+		case err = <-e:
+			return err
+		}
+	}
+	fmt.Println("- Removing", name)
+	return docker.ContainerRemove(context.Background(), c.ID, types.ContainerRemoveOptions{
+		Force: true,
+	})
+}
+
+func destroyAll(docker *client.Client, z *zfs.ZFS) error {
+	fmt.Println("Destroying Containers")
+
+	cs, err := docker.ContainerList(context.Background(), types.ContainerListOptions{All: true})
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		for _, name := range c.Names {
+			if strings.HasPrefix(name, "/zdap-") {
+				err = destroyContainer(c, docker)
+				if err != nil {
+					return err
+				}
+				break
+			}
+		}
+
+	}
+
+	fmt.Println("Destroying DataSets")
+	return z.DestroyAll()
+}
+
+func destroyClones(docker *client.Client, z *zfs.ZFS) error {
+	fmt.Println("Destroying Containers")
+
+	clones, err := z.ListClones()
+	if err != nil {
+		return err
+	}
+	isClone := map[string]bool{}
+	for _, c := range clones {
+		isClone[c] = true
+	}
+
+	cs, err := docker.ContainerList(context.Background(), types.ContainerListOptions{All: true})
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		for _, name := range c.Names {
+			name := strings.TrimSuffix(name, "-proxy")
+			name = strings.TrimPrefix(name, "/")
+
+			if isClone[name] {
+				err = destroyContainer(c, docker)
+				if err != nil {
+					return err
+				}
+				break
+			}
+		}
+
+	}
+	fmt.Println("Destroying DataSets")
+	for _, c := range clones {
+		err = z.Destroy(c)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func destroyClone(clone string, docker *client.Client, z *zfs.ZFS) error {
+	fmt.Println("Destroying Containers")
+
+	clones, err := z.ListClones()
+	if err != nil {
+		return err
+	}
+	isClone := map[string]bool{}
+	for _, c := range clones {
+		isClone[c] = true
+	}
+	if !isClone[clone] {
+		return fmt.Errorf("could not find clone %s", clone)
+	}
+
+	cs, err := docker.ContainerList(context.Background(), types.ContainerListOptions{All: true})
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		for _, name := range c.Names {
+			if strings.HasPrefix(name, "/"+clone) {
+				err = destroyContainer(c, docker)
+				if err != nil {
+					return err
+				}
+				break
+			}
+		}
+
+	}
+	return z.Destroy(clone)
+}
