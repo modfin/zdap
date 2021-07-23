@@ -22,10 +22,29 @@ type ZFS struct {
 }
 
 
+const TimestampFormat = "2006-01-02T15.04.05"
 
-var cloneReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}_[0-9]{2}_[0-9]{2}-clone-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}_[0-9]{2}_[0-9]{2}_[a-zA-Z]{3}$")
-var snapReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}_[0-9]{2}_[0-9]{2}@snap$")
-var baseReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}_[0-9]{2}_[0-9]{2}$")
+var TimeReg = regexp.MustCompile("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}")
+
+var cloneReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}-clone-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}.[a-zA-Z]{3}$")
+var snapReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}@snap$")
+var baseReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}$")
+
+
+
+
+
+
+func (z *ZFS) GetDatasetBaseNameAt(name string, at time.Time) string {
+	return fmt.Sprintf("zdap-%s-base-%s", name, at.Format(TimestampFormat))
+}
+
+func (z *ZFS) NewDatasetBaseName(name string) string {
+	return z.GetDatasetBaseNameAt(name, time.Now())
+}
+func (z *ZFS) GetDatasetSnapNameAt(name string, at time.Time) string {
+	return fmt.Sprintf("%s@snap", z.GetDatasetBaseNameAt(name, at))
+}
 
 func (z *ZFS) CreateDataset(name string) (string, error) {
 	ds, err := zfs.DatasetCreate(fmt.Sprintf("%s/%s", z.pool, name), zfs.DatasetTypeFilesystem, nil)
@@ -239,7 +258,7 @@ func (z *ZFS) CloneDataset(snapName string) (string, string, error) {
 		return "", "", errors.New("could not find snapshot to clone")
 	}
 
-	cloneName := fmt.Sprintf("%s-clone-%s_%s", dsName, time.Now().Format("2006-01-02T15_04_05"), utils.RandStringRunes(3))
+	cloneName := fmt.Sprintf("%s-clone-%s.%s", dsName, time.Now().Format(TimestampFormat), utils.RandStringRunes(3))
 	clone, err := snap.Clone(fmt.Sprintf("%s/%s", z.pool, cloneName), nil)
 	if err != nil {
 		return "", "", err
