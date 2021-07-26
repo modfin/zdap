@@ -37,7 +37,7 @@ func main() {
 			return err
 		}
 
-		app, err = core.NewCore(configDir, docker, z)
+		app, err = core.NewCore(configDir, cfg.NetworkAddress, docker, z)
 		if err != nil{
 			return err
 		}

@@ -55,19 +55,18 @@ func main() {
 						return err
 					}
 
-
 					var server string
 					var resource string
 					var snap time.Time
 
-					for _, arg := range c.Args().Slice(){
-						if strings.HasPrefix(arg, "@"){
+					for _, arg := range c.Args().Slice() {
+						if strings.HasPrefix(arg, "@") {
 							server = arg[1:]
 							continue
 						}
-						if utils.TimestampFormatRegexp.MatchString(arg){
+						if utils.TimestampFormatRegexp.MatchString(arg) {
 							snap, err = time.Parse(utils.TimestampFormat, arg)
-							if err != nil{
+							if err != nil {
 								return err
 							}
 							continue
@@ -75,16 +74,15 @@ func main() {
 						resource = arg
 					}
 
-					if server == ""{
+					if server == "" {
 						server = cfg.Servers[0] // TODO intelligent selection
 					}
 					client := zdap.NewClient(cfg.User, server)
 					clone, err := client.CloneSnap(resource, snap)
-					if err != nil{
+					if err != nil {
 						return err
 					}
-					address := strings.Split(server, ":")[0]
-					fmt.Printf("== Override ==\n%s\n", clone.YAML(address, 5432))
+					fmt.Printf("== Override ==\n%s\n", clone.YAML(5432))
 
 					return nil
 				},
@@ -104,19 +102,18 @@ func main() {
 								return err
 							}
 
-
 							var servers []string
 							var resource string
 							var clone time.Time
 
-							for _, arg := range c.Args().Slice(){
-								if strings.HasPrefix(arg, "@"){
+							for _, arg := range c.Args().Slice() {
+								if strings.HasPrefix(arg, "@") {
 									servers = append(servers, arg[1:])
 									continue
 								}
 								if utils.TimestampFormatRegexp.MatchString(arg) {
 									clone, err = time.Parse(utils.TimestampFormat, arg)
-									if err != nil{
+									if err != nil {
 										return err
 									}
 									continue
@@ -124,24 +121,24 @@ func main() {
 								resource = arg
 							}
 
-							if len(servers) == 0{
+							if len(servers) == 0 {
 								servers = cfg.Servers
 							}
 
-							if len(resource) == 0{
+							if len(resource) == 0 {
 								return errors.New("clone resource must be provided")
 							}
 
 							plural := "clones"
-							if !clone.IsZero(){
+							if !clone.IsZero() {
 								plural = "clone " + clone.Format(utils.TimestampFormat)
 							}
 
-							for _, s := range servers{
+							for _, s := range servers {
 								fmt.Printf("Destroying %s of %s @%s \n", plural, resource, s)
 								client := zdap.NewClient(cfg.User, s)
 								err = client.DestroyClone(resource, clone)
-								if err != nil{
+								if err != nil {
 									fmt.Println("[Err]", err)
 								}
 
@@ -171,9 +168,13 @@ func main() {
 									return err
 								}
 
-								fmt.Println("@", s)
-								for _, resource := range resources {
-									fmt.Println(" ", resource.Name)
+								r1 := "├"
+								fmt.Printf("@%s\n", s)
+								for i, resource := range resources {
+									if i == len(resources)-1 {
+										r1 = "└"
+									}
+									fmt.Printf("%s %s\n", r1, resource.Name)
 								}
 							}
 							return nil
@@ -188,7 +189,7 @@ func main() {
 							}
 
 							var name string
-							if c.Args().Len() > 0{
+							if c.Args().Len() > 0 {
 								name = c.Args().First()
 							}
 
@@ -199,15 +200,24 @@ func main() {
 									return err
 								}
 
-								fmt.Println("@", s)
-								for _, resource := range resources {
-									if name != "" && name != resource.Name{
+								fmt.Printf("@%s\n", s)
+								r1 := "├"
+								rPipe := "│"
+								for i, resource := range resources {
+									if name != "" && name != resource.Name {
 										continue
 									}
-
-									fmt.Println(" ", resource.Name)
-									for _, snap := range resource.Snaps {
-										fmt.Println("  ", snap.CreatedAt.In(time.UTC).Format(utils.TimestampFormat))
+									if i == len(resources)-1 {
+										r1 = "└"
+										rPipe = " "
+									}
+									s1 := "├"
+									fmt.Printf("%s %s\n", r1, resource.Name)
+									for j, snap := range resource.Snaps {
+										if j == len(resource.Snaps)-1 {
+											s1 = "└"
+										}
+										fmt.Printf("%s %s %s\n", rPipe, s1, snap.CreatedAt.In(time.UTC).Format(utils.TimestampFormat))
 									}
 								}
 							}
@@ -216,10 +226,35 @@ func main() {
 					},
 					{
 						Name: "clones",
+						Flags: []cli.Flag{
+							&cli.StringFlag{Name: "format"},
+						},
 						Action: func(c *cli.Context) error {
 							cfg, err := getConfig()
 							if err != nil {
 								return err
+							}
+
+							var servers []string
+							var lookingForResources []string
+							var cloneName time.Time
+
+							for _, arg := range c.Args().Slice() {
+								if strings.HasPrefix(arg, "@") {
+									servers = append(servers, arg[1:])
+									continue
+								}
+								if utils.TimestampFormatRegexp.MatchString(arg) {
+									cloneName, err = time.Parse(utils.TimestampFormat, arg)
+									if err != nil {
+										return err
+									}
+									continue
+								}
+								lookingForResources = append(lookingForResources, arg)
+							}
+							if len(servers) == 0 {
+								servers = cfg.Servers
 							}
 
 							for _, s := range cfg.Servers {
@@ -229,16 +264,76 @@ func main() {
 									return err
 								}
 
-								fmt.Println("@", s)
+								var res []zdap.PublicResource
 								for _, resource := range resources {
-									fmt.Println(" ", resource.Name)
-									for _, snap := range resource.Snaps {
-										for _, clone := range snap.Clones {
-											fmt.Println("  ", clone.CreatedAt.In(time.UTC).Format(utils.TimestampFormat))
-										}
+									if len(lookingForResources) > 0 && !utils.StringSliceContains(lookingForResources, resource.Name) {
+										continue
+									}
 
+									var snaps []zdap.PublicSnap
+									for _, snap := range resource.Snaps {
+										var clones []zdap.PublicClone
+										for _, clone := range snap.Clones {
+											if !cloneName.IsZero() && !cloneName.Equal(clone.CreatedAt) {
+												continue
+											}
+											clones = append(clones, clone)
+										}
+										snap.Clones = clones
+
+										if len(snap.Clones) > 0 {
+											snaps = append(snaps, snap)
+										}
+									}
+									resource.Snaps = snaps
+
+									res = append(res, resource)
+								}
+
+								switch c.String("format") {
+								case "yaml":
+									for _, resource := range res {
+										for _, snaps := range resource.Snaps {
+											for _, clone := range snaps.Clones {
+												fmt.Println(clone.YAML(5432))
+												fmt.Println()
+											}
+										}
+									}
+
+								default:
+									fmt.Printf("@%s\n", s)
+
+									r1 := "├"
+									rPipe := "│"
+									sPipe := "│"
+
+									for r, resource := range res {
+										lastR := r == len(res)-1
+										if lastR {
+											r1 = "└"
+											rPipe = " "
+										}
+										fmt.Printf("%s %s\n", r1, resource.Name)
+										s1 := "├"
+										for s, snaps := range resource.Snaps {
+											lastS := s == len(resource.Snaps)-1
+											if lastS {
+												s1 = "└"
+												sPipe = rPipe
+											}
+											fmt.Printf("%s %s %s\n", rPipe, s1, snaps.CreatedAt.In(time.UTC).Format(utils.TimestampFormat))
+											c1 := "├"
+											for c, clone := range snaps.Clones {
+												if c == len(snaps.Clones)-1 {
+													c1 = "└"
+												}
+												fmt.Printf("%s %s %s %s\n", rPipe, sPipe, c1, clone.CreatedAt.In(time.UTC).Format(utils.TimestampFormat))
+											}
+										}
 									}
 								}
+
 							}
 							return nil
 						},

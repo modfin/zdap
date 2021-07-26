@@ -24,18 +24,21 @@ type Core struct {
 	z         *zfs.ZFS
 	configDir string
 
+	networkAddress string
+
 	cron      *cron.Cron
 	resources []internal.Resource
 	ttlCache *cache.Cache
 
 }
 
-func NewCore(configDir string, docker *client.Client, z *zfs.ZFS) (*Core, error) {
+func NewCore(configDir string, networkAddress string, docker *client.Client, z *zfs.ZFS) (*Core, error) {
 
 	c := &Core{
 		docker:    docker,
 		z:         z,
 		configDir: configDir,
+		networkAddress: networkAddress,
 		ttlCache: cache.New(10*time.Second, time.Minute),
 	}
 	err := c.reload()
@@ -179,9 +182,9 @@ func (c *Core) GetResourceClones(resourceName string)  (map[time.Time][]zdap.Pub
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(clones)
 	var rclone = map[time.Time][]zdap.PublicClone{}
 	for _, clone := range clones {
+		clone.Server = c.networkAddress
 		if !strings.HasPrefix(clone.Name, fmt.Sprintf("zdap-%s-",resourceName)){
 			continue
 		}

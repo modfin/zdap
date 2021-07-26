@@ -15,7 +15,7 @@ func getResources(owner string, app *core.Core) ([]zdap.PublicResource, error) {
 	var resources []zdap.PublicResource
 	for _, r := range app.GetResources() {
 		res := zdap.PublicResource{
-			Name: r.Name,
+			Name:  r.Name,
 			Alias: r.Alias,
 		}
 		res.Snaps, err = getSnaps(owner, r.Name, app)
@@ -36,7 +36,7 @@ func getResource(owner string, resource string, app *core.Core) (*zdap.PublicRes
 			continue
 		}
 		res := zdap.PublicResource{
-			Name: r.Name,
+			Name:  r.Name,
 			Alias: r.Alias,
 		}
 		res.Snaps, err = getSnaps(owner, r.Name, app)
@@ -69,7 +69,7 @@ func getSnaps(owner string, resource string, app *core.Core) ([]zdap.PublicSnap,
 	var snaps []zdap.PublicSnap
 	for _, t := range ss {
 		t.Clones, err = getClones(owner, t.CreatedAt, resource, app)
-		if err != nil{
+		if err != nil {
 			return nil, err
 		}
 		snaps = append(snaps, t)
@@ -89,7 +89,7 @@ func getClone(owner string, clone time.Time, snap time.Time, resource string, ap
 		if !t.CreatedAt.Equal(clone) {
 			continue
 		}
-		if t.Owner != owner{
+		if t.Owner != owner {
 			continue
 		}
 		return &t, nil
@@ -103,17 +103,17 @@ func getClones(owner string, snap time.Time, resource string, app *core.Core) ([
 	if err != nil {
 		return nil, err
 	}
-	 for _, c := range cc[snap]{
-	 	if strings.ToLower(c.Owner) == strings.ToLower(owner){
+	for _, c := range cc[snap] {
+		if strings.ToLower(c.Owner) == strings.ToLower(owner) {
 			clones = append(clones, c)
 		}
-	 }
+	}
 	sort.Slice(clones, func(i, j int) bool {
 		return clones[i].CreatedAt.Before(clones[j].CreatedAt)
 	})
-	for i, c := range clones{
+	for i, c := range clones {
 		c.Port, err = getPortClone(c.Name, app)
-		if err != nil{
+		if err != nil {
 			return nil, err
 		}
 		clones[i] = c
@@ -121,18 +121,18 @@ func getClones(owner string, snap time.Time, resource string, app *core.Core) ([
 	return clones, nil
 }
 
-func getPortClone(clone string, app *core.Core) (int, error){
+func getPortClone(clone string, app *core.Core) (int, error) {
 
 	cons, err := app.GetCloneContainers(clone)
-	if err != nil{
+	if err != nil {
 		return 0, err
 	}
 
-	for _, c := range cons{
-		for _, name := range c.Names{
-			if strings.HasSuffix(name, clone+"-proxy"){
-				for _, port := range c.Ports{
-					if port.PublicPort > 0{
+	for _, c := range cons {
+		for _, name := range c.Names {
+			if strings.HasSuffix(name, clone+"-proxy") {
+				for _, port := range c.Ports {
+					if port.PublicPort > 0 {
 						return int(port.PublicPort), nil
 					}
 				}

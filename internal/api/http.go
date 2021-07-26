@@ -24,7 +24,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			auth := c.Request().Header.Get("auth")
-			if len(auth) == 0{
+			if len(auth) == 0 {
 				fmt.Println(c.Request().Header)
 				return errors.New("auth header must be supplied")
 			}
@@ -34,7 +34,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	})
 
 	e.GET("/resources", func(c echo.Context) error {
-		res, err := getResources(c.Get("owner").(string),app)
+		res, err := getResources(c.Get("owner").(string), app)
 		if err != nil {
 			return err
 		}
@@ -49,31 +49,15 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		return c.JSON(http.StatusOK, res)
 	})
 
-	//e.POST("/resources/:resource", func(c echo.Context) error {
-	//	resource := c.Param("resource")
-	//	if !app.ResourcesExists(resource) {
-	//		return fmt.Errorf("resource, %s, does not exist", resource)
-	//	}
-	//
-	//	go func() {
-	//		err := app.CreateBaseAndSnap(resource)
-	//		if err != nil {
-	//			fmt.Println("could not create base and snap of", resource, ",", err)
-	//		}
-	//	}()
-	//	return c.JSON(http.StatusOK, map[string]string{"status": "resource is being queued for creation of snap"})
-	//})
-
-
 	e.GET("/resources/:resource/clones", func(c echo.Context) error {
 		snaps, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
-		if err != nil{
+		if err != nil {
 			return err
 		}
 
 		var clones []zdap.PublicClone
 
-		for _, snap := range snaps{
+		for _, snap := range snaps {
 			clones = append(clones, snap.Clones...)
 		}
 
@@ -82,13 +66,13 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 
 	e.DELETE("/resources/:resource/clones", func(c echo.Context) error {
 		snaps, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
-		if err != nil{
+		if err != nil {
 			return err
 		}
-		for _, snap := range snaps{
-			for _, clone := range snap.Clones{
+		for _, snap := range snaps {
+			for _, clone := range snap.Clones {
 				err = app.DestroyClone(clone.Name)
-				if err != nil{
+				if err != nil {
 					return err
 				}
 			}
@@ -98,17 +82,17 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 
 	e.DELETE("/resources/:resource/clones/:time", func(c echo.Context) error {
 		snaps, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
-		if err != nil{
+		if err != nil {
 			return err
 		}
 		at, err := time.Parse(utils.TimestampFormat, c.Param("time"))
-		if err != nil{
+		if err != nil {
 			return err
 		}
 
-		for _, snap := range snaps{
-			for _, clone := range snap.Clones{
-				if clone.CreatedAt.Equal(at){
+		for _, snap := range snaps {
+			for _, clone := range snap.Clones {
+				if clone.CreatedAt.Equal(at) {
 					err = app.DestroyClone(clone.Name)
 					return c.NoContent(http.StatusOK)
 				}
@@ -116,9 +100,6 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		}
 		return errors.New("could not find clone to destroy")
 	})
-
-
-
 
 	e.GET("/resources/:resource/snaps", func(c echo.Context) error {
 		res, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
@@ -168,8 +149,6 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		}
 		return c.JSON(http.StatusOK, res)
 	})
-
-
 
 	return e.Start(fmt.Sprintf(":%d", cfg.APIPort))
 }
