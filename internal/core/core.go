@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/patrickmn/go-cache"
 	"github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
@@ -25,6 +26,8 @@ type Core struct {
 
 	cron      *cron.Cron
 	resources []internal.Resource
+	ttlCache *cache.Cache
+
 }
 
 func NewCore(configDir string, docker *client.Client, z *zfs.ZFS) (*Core, error) {
@@ -33,6 +36,7 @@ func NewCore(configDir string, docker *client.Client, z *zfs.ZFS) (*Core, error)
 		docker:    docker,
 		z:         z,
 		configDir: configDir,
+		ttlCache: cache.New(10*time.Second, time.Minute),
 	}
 	err := c.reload()
 	return c, err
@@ -145,10 +149,18 @@ func (c *Core) GetResources() []internal.Resource {
 }
 
 func (c *Core) GetCloneContainers(cloneName string) ([]types.Container, error){
-	containers, err := c.docker.ContainerList(context.Background(), types.ContainerListOptions{})
-	if err != nil{
-		return nil, err
+
+	cons, found := c.ttlCache.Get("current_containers")
+	if !found {
+		containers, err := c.docker.ContainerList(context.Background(), types.ContainerListOptions{})
+		if err != nil{
+			return nil, err
+		}
+		cons = containers
+		c.ttlCache.Set("current_containers", cons, 2*time.Second)
 	}
+	containers := cons.([]types.Container)
+
 	var cc []types.Container
 	for _, c := range containers{
 		for _, name := range c.Names{
@@ -224,7 +236,7 @@ func (c *Core) CreateBaseAndSnap(resourceName string) error {
 	return createBaseAndSnap(c.configDir, r, c.docker, c.z)
 }
 
-func (c *Core) CloneResource(owner string, resourceName string, at time.Time) (*zdap.Clone, error) {
+func (c *Core) CloneResource(owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
 
 	r := c.getResource(resourceName)
 	if r == nil{

@@ -10,7 +10,7 @@ import (
 	"zdap/internal/utils"
 )
 
-func getResources(app *core.Core) ([]zdap.PublicResource, error) {
+func getResources(owner string, app *core.Core) ([]zdap.PublicResource, error) {
 	var err error
 	var resources []zdap.PublicResource
 	for _, r := range app.GetResources() {
@@ -18,7 +18,7 @@ func getResources(app *core.Core) ([]zdap.PublicResource, error) {
 			Name: r.Name,
 			Alias: r.Alias,
 		}
-		res.Snaps, err = getSnaps(r.Name, app)
+		res.Snaps, err = getSnaps(owner, r.Name, app)
 		if err != nil {
 			return nil, err
 		}
@@ -29,7 +29,7 @@ func getResources(app *core.Core) ([]zdap.PublicResource, error) {
 	})
 	return resources, nil
 }
-func getResource(resource string, app *core.Core) (*zdap.PublicResource, error) {
+func getResource(owner string, resource string, app *core.Core) (*zdap.PublicResource, error) {
 	var err error
 	for _, r := range app.GetResources() {
 		if r.Name != resource {
@@ -39,7 +39,7 @@ func getResource(resource string, app *core.Core) (*zdap.PublicResource, error) 
 			Name: r.Name,
 			Alias: r.Alias,
 		}
-		res.Snaps, err = getSnaps(r.Name, app)
+		res.Snaps, err = getSnaps(owner, r.Name, app)
 		if err != nil {
 			return nil, err
 		}
@@ -47,7 +47,7 @@ func getResource(resource string, app *core.Core) (*zdap.PublicResource, error) 
 	}
 	return nil, fmt.Errorf("could not find resource")
 }
-func getSnap(createdAt time.Time, resource string, app *core.Core) (*zdap.PublicSnap, error) {
+func getSnap(owner string, createdAt time.Time, resource string, app *core.Core) (*zdap.PublicSnap, error) {
 	ss, err := app.GetResourceSnaps(resource)
 	if err != nil {
 		return nil, err
@@ -56,19 +56,19 @@ func getSnap(createdAt time.Time, resource string, app *core.Core) (*zdap.Public
 		if !t.CreatedAt.Equal(createdAt) {
 			continue
 		}
-		t.Clones, err = getClones(t.CreatedAt, resource, app)
+		t.Clones, err = getClones(owner, t.CreatedAt, resource, app)
 		return &t, nil
 	}
 	return nil, fmt.Errorf("could not find snap %s@%s", resource, createdAt.Format(utils.TimestampFormat))
 }
-func getSnaps(resource string, app *core.Core) ([]zdap.PublicSnap, error) {
+func getSnaps(owner string, resource string, app *core.Core) ([]zdap.PublicSnap, error) {
 	ss, err := app.GetResourceSnaps(resource)
 	if err != nil {
 		return nil, err
 	}
 	var snaps []zdap.PublicSnap
 	for _, t := range ss {
-		t.Clones, err = getClones(t.CreatedAt, resource, app)
+		t.Clones, err = getClones(owner, t.CreatedAt, resource, app)
 		if err != nil{
 			return nil, err
 		}
@@ -80,9 +80,8 @@ func getSnaps(resource string, app *core.Core) ([]zdap.PublicSnap, error) {
 	return snaps, nil
 }
 
-func getClone(clone time.Time, snap time.Time, resource string, app *core.Core) (*zdap.PublicClone, error) {
+func getClone(owner string, clone time.Time, snap time.Time, resource string, app *core.Core) (*zdap.PublicClone, error) {
 	cc, err := app.GetResourceClones(resource)
-	fmt.Println("CLONES", cc)
 	if err != nil {
 		return nil, err
 	}
@@ -90,19 +89,25 @@ func getClone(clone time.Time, snap time.Time, resource string, app *core.Core) 
 		if !t.CreatedAt.Equal(clone) {
 			continue
 		}
+		if t.Owner != owner{
+			continue
+		}
 		return &t, nil
 	}
 	return nil, fmt.Errorf("could not find clone %s@%s -> %s", resource, snap.Format(utils.TimestampFormat), clone.Format(utils.TimestampFormat))
 }
 
-func getClones(snap time.Time, resource string, app *core.Core) ([]zdap.PublicClone, error) {
+func getClones(owner string, snap time.Time, resource string, app *core.Core) ([]zdap.PublicClone, error) {
 	var clones []zdap.PublicClone
 	cc, err := app.GetResourceClones(resource)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("CLONES", cc)
-	clones =  cc[snap]
+	 for _, c := range cc[snap]{
+	 	if strings.ToLower(c.Owner) == strings.ToLower(owner){
+			clones = append(clones, c)
+		}
+	 }
 	sort.Slice(clones, func(i, j int) bool {
 		return clones[i].CreatedAt.Before(clones[j].CreatedAt)
 	})
@@ -125,7 +130,7 @@ func getPortClone(clone string, app *core.Core) (int, error){
 
 	for _, c := range cons{
 		for _, name := range c.Names{
-			if strings.HasSuffix(name, "-proxy"){
+			if strings.HasSuffix(name, clone+"-proxy"){
 				for _, port := range c.Ports{
 					if port.PublicPort > 0{
 						return int(port.PublicPort), nil

@@ -1,11 +1,13 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"github.com/docker/docker/client"
 	"github.com/labstack/echo/v4/middleware"
 	"net/http"
 	"time"
+	"zdap"
 	"zdap/internal/config"
 	"zdap/internal/core"
 	"zdap/internal/utils"
@@ -17,9 +19,22 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	e := echo.New()
 
 	e.Use(middleware.Logger())
+	e.Use(middleware.RemoveTrailingSlash())
+
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			auth := c.Request().Header.Get("auth")
+			if len(auth) == 0{
+				fmt.Println(c.Request().Header)
+				return errors.New("auth header must be supplied")
+			}
+			c.Set("owner", auth)
+			return next(c)
+		}
+	})
 
 	e.GET("/resources", func(c echo.Context) error {
-		res, err := getResources(app)
+		res, err := getResources(c.Get("owner").(string),app)
 		if err != nil {
 			return err
 		}
@@ -27,29 +42,86 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	})
 
 	e.GET("/resources/:resource", func(c echo.Context) error {
-		res, err := getResource(c.Param("resource"), app)
+		res, err := getResource(c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
 		return c.JSON(http.StatusOK, res)
 	})
 
-	e.POST("/resources/:resource", func(c echo.Context) error {
-		resource := c.Param("resource")
-		if !app.ResourcesExists(resource) {
-			return fmt.Errorf("resource, %s, does not exist", resource)
+	//e.POST("/resources/:resource", func(c echo.Context) error {
+	//	resource := c.Param("resource")
+	//	if !app.ResourcesExists(resource) {
+	//		return fmt.Errorf("resource, %s, does not exist", resource)
+	//	}
+	//
+	//	go func() {
+	//		err := app.CreateBaseAndSnap(resource)
+	//		if err != nil {
+	//			fmt.Println("could not create base and snap of", resource, ",", err)
+	//		}
+	//	}()
+	//	return c.JSON(http.StatusOK, map[string]string{"status": "resource is being queued for creation of snap"})
+	//})
+
+
+	e.GET("/resources/:resource/clones", func(c echo.Context) error {
+		snaps, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
+		if err != nil{
+			return err
 		}
 
-		go func() {
-			err := app.CreateBaseAndSnap(resource)
-			if err != nil {
-				fmt.Println("could not create base and snap of", resource, ",", err)
-			}
-		}()
-		return c.JSON(http.StatusOK, map[string]string{"status": "resource is being queued for creation of snap"})
+		var clones []zdap.PublicClone
+
+		for _, snap := range snaps{
+			clones = append(clones, snap.Clones...)
+		}
+
+		return c.JSON(http.StatusOK, clones)
 	})
+
+	e.DELETE("/resources/:resource/clones", func(c echo.Context) error {
+		snaps, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
+		if err != nil{
+			return err
+		}
+		for _, snap := range snaps{
+			for _, clone := range snap.Clones{
+				err = app.DestroyClone(clone.Name)
+				if err != nil{
+					return err
+				}
+			}
+		}
+		return c.NoContent(http.StatusOK)
+	})
+
+	e.DELETE("/resources/:resource/clones/:time", func(c echo.Context) error {
+		snaps, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
+		if err != nil{
+			return err
+		}
+		at, err := time.Parse(utils.TimestampFormat, c.Param("time"))
+		if err != nil{
+			return err
+		}
+
+		for _, snap := range snaps{
+			for _, clone := range snap.Clones{
+				if clone.CreatedAt.Equal(at){
+					err = app.DestroyClone(clone.Name)
+					return c.NoContent(http.StatusOK)
+				}
+			}
+		}
+		return errors.New("could not find clone to destroy")
+	})
+
+
+
+
 	e.GET("/resources/:resource/snaps", func(c echo.Context) error {
-		res, err := getSnaps(c.Param("resource"), app)
+		res, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -58,7 +130,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 
 	e.POST("/resources/:resource/snaps", func(c echo.Context) error {
 		resource := c.Param("resource")
-		snaps, err := getSnaps(resource, app)
+		snaps, err := getSnaps(c.Get("owner").(string), resource, app)
 		if err != nil {
 			return err
 		}
@@ -68,8 +140,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 				max = s.CreatedAt
 			}
 		}
-
-		clone, err := app.CloneResource("API", resource, max)
+		clone, err := app.CloneResource(c.Get("owner").(string), resource, max)
 		if err != nil {
 			return err
 		}
@@ -79,7 +150,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		resource := c.Param("resource")
 		at, err := time.Parse(utils.TimestampFormat, c.Param("createdAt"))
 
-		clone, err := app.CloneResource("API", resource, at)
+		clone, err := app.CloneResource(c.Get("owner").(string), resource, at)
 		if err != nil {
 			return err
 		}
@@ -91,38 +162,14 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		if err != nil {
 			return err
 		}
-		res, err := getSnap(at, c.Param("resource"), app)
+		res, err := getSnap(c.Get("owner").(string), at, c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
 		return c.JSON(http.StatusOK, res)
 	})
-	e.GET("/resources/:resource/snaps/:createdAt/clones", func(c echo.Context) error {
-		at, err := time.Parse(utils.TimestampFormat, c.Param("createdAt"))
-		if err != nil {
-			return err
-		}
-		res, err := getClones(at, c.Param("resource"), app)
-		if err != nil {
-			return err
-		}
-		return c.JSON(http.StatusOK, res)
-	})
-	e.GET("/resources/:resource/snaps/:snappedAt/clones/:clonedAt", func(c echo.Context) error {
-		snapAt, err := time.Parse(utils.TimestampFormat, c.Param("snappedAt"))
-		if err != nil {
-			return err
-		}
-		clonedAt, err := time.Parse(utils.TimestampFormat, c.Param("clonedAt"))
-		if err != nil {
-			return err
-		}
-		res, err := getClone(clonedAt, snapAt, c.Param("resource"), app)
-		if err != nil {
-			return err
-		}
-		return c.JSON(http.StatusOK, res)
-	})
+
+
 
 	return e.Start(fmt.Sprintf(":%d", cfg.APIPort))
 }

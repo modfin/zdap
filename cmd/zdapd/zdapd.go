@@ -138,7 +138,7 @@ func main() {
 								return err
 							}
 							fmt.Println("=== Clone ===")
-							fmt.Println(clone.YamlOverride(5432))
+							fmt.Println(clone)
 
 							return nil
 						},
@@ -240,7 +240,7 @@ func main() {
 											char = "└"
 										}
 
-										fmt.Printf("%s %s %s\n",ochar2, char, c.CreatedAt.In(time.UTC).Format(utils.TimestampFormat))
+										fmt.Printf("%s %s %s - %s\n",ochar2, char, c.CreatedAt.In(time.UTC).Format(utils.TimestampFormat), c.Owner)
 									}
 								}
 								return nil

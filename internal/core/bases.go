@@ -165,7 +165,7 @@ func ensureNetwork(cli *client.Client) (*types.NetworkResource, error) {
 }
 
 var cloneCreationMutex = sync.Mutex{}
-func createClone(owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS) (*zdap.Clone, error) {
+func createClone(owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS) (*zdap.PublicClone, error) {
 	cloneCreationMutex.Lock()
 	defer cloneCreationMutex.Unlock()
 
@@ -287,12 +287,12 @@ func createClone(owner string, snap string, r *internal.Resource, docker *client
 		return nil, err
 	}
 
-	return &zdap.Clone{
+	return &zdap.PublicClone{
 		Name:      cloneName,
 		Resource:  r.Name,
-		Snap:      snap,
 		SnappedAt: snappedAt,
 		CreatedAt: createdAt,
+		Owner: owner,
 		Port:      port,
 	}, nil
 }

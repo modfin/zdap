@@ -51,6 +51,7 @@ func (z *ZFS) CreateDataset(name string, resource string, creation time.Time) (s
 	if err != nil {
 		return "", err
 	}
+	defer ds.Close()
 
 	err = ds.SetUserProperty(PropResource, resource)
 	if err != nil {
@@ -78,6 +79,7 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 		return nil
 		//return fmt.Errorf("could not open ds: %w", err)
 	}
+	defer dataset.Close()
 	err = dataset.UnmountAll(0)
 	if err != nil {
 		return fmt.Errorf("could not unmout all: %w", err)
@@ -145,6 +147,7 @@ func (z *ZFS) DestroyAll() error {
 	if err != nil {
 		return err
 	}
+	defer ds.Close()
 
 	ch := ds.Children
 	sort.Slice(ch, func(i, j int) bool {
@@ -191,6 +194,7 @@ func (z *ZFS) List() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer dss.Close()
 
 	var list []string
 	for _, ds := range dss.Children {
@@ -324,6 +328,8 @@ func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error
 	if err != nil {
 		return err
 	}
+	defer ds.Close()
+
 	err = ds.SetUserProperty(PropResource, resource)
 	if err != nil {
 		return err
@@ -347,6 +353,7 @@ func (z *ZFS) CloneDataset(owner, snapName string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	defer ds.Close()
 
 	ok, snap := ds.FindSnapshotName("@" + snapName)
 	if !ok {
@@ -360,6 +367,7 @@ func (z *ZFS) CloneDataset(owner, snapName string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	defer clone.Close()
 
 	err = clone.SetUserProperty(PropOwner, owner)
 	if err != nil {
