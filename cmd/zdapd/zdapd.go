@@ -100,6 +100,11 @@ func main() {
 								Name:   "from",
 								Layout: utils.TimestampFormat,
 							},
+							&cli.StringFlag{
+								Name:   "owner",
+								Usage: "the owner of the clone",
+								DefaultText: "host",
+							},
 						},
 						Usage: "creates a snap of a resource",
 						Action: func(c *cli.Context) error {
@@ -115,20 +120,20 @@ func main() {
 							resource := c.Args().First()
 
 							if from == nil {
-								times, err := app.GetResourceSnaps(resource)
+								snaps, err := app.GetResourceSnaps(resource)
 								if err != nil {
 									return err
 								}
-								if len(times) == 0 {
+								if len(snaps) == 0 {
 									return errors.New("there seems to be no snaps available for resource")
 								}
-								sort.Slice(times, func(i, j int) bool {
-									return times[i].After(times[j])
+								sort.Slice(snaps, func(i, j int) bool {
+									return snaps[i].CreatedAt.After(snaps[j].CreatedAt)
 								})
-								from = &times[0]
+								from = &snaps[0].CreatedAt
 							}
 
-							clone, err := app.CloneResource(resource, *from)
+							clone, err := app.CloneResource(c.String("owner"), resource, *from)
 							if err != nil {
 								return err
 							}
@@ -148,7 +153,7 @@ func main() {
 						Name:  "resources",
 						Usage: "lists available resources / services that can be cloned",
 						Action: func(c *cli.Context) error {
-							fmt.Printf("== Resrources ==\n%s\n", strings.Join(app.GetResources(), "\n"))
+							fmt.Printf("== Resrources ==\n%s\n", strings.Join(app.GetResourcesNames(), "\n"))
 							return nil
 						},
 					},
@@ -158,24 +163,24 @@ func main() {
 						Action: func(c *cli.Context) error {
 
 							printSnap := func(resource string) error {
-								times, err := app.GetResourceSnaps(resource)
+								snaps, err := app.GetResourceSnaps(resource)
 								if err != nil {
 									return err
 								}
-								if len(times) == 0 {
+								if len(snaps) == 0 {
 									return nil
 								}
-								sort.Slice(times, func(i, j int) bool {
-									return times[i].Before(times[j])
+								sort.Slice(snaps, func(i, j int) bool {
+									return snaps[i].CreatedAt.Before(snaps[j].CreatedAt)
 								})
 								fmt.Println(resource)
-								for j, t := range times {
+								for j, snap := range snaps {
 									ochar := "├"
-									if j == len(times)-1{
+									if j == len(snaps)-1{
 										ochar = "└"
 									}
 
-									fmt.Printf("%s @ %s\n", ochar, t.In(time.UTC).Format(utils.TimestampFormat))
+									fmt.Printf("%s @ %s\n", ochar, snap.CreatedAt.In(time.UTC).Format(utils.TimestampFormat))
 								}
 								return nil
 							}
@@ -184,7 +189,7 @@ func main() {
 							if c.Args().Present() {
 								return printSnap(c.Args().First())
 							}
-							resources := app.GetResources()
+							resources := app.GetResourcesNames()
 							sort.Strings(resources)
 							for _, resource := range resources {
 								err = printSnap(resource)
@@ -213,7 +218,7 @@ func main() {
 								for k, arr := range times {
 									keys = append(keys, k)
 									sort.Slice(arr, func(i, j int) bool {
-										return arr[i].Before(arr[j])
+										return arr[i].CreatedAt.Before(arr[j].CreatedAt)
 									})
 								}
 
@@ -235,7 +240,7 @@ func main() {
 											char = "└"
 										}
 
-										fmt.Printf("%s %s %s\n",ochar2, char, c.In(time.UTC).Format(utils.TimestampFormat))
+										fmt.Printf("%s %s %s\n",ochar2, char, c.CreatedAt.In(time.UTC).Format(utils.TimestampFormat))
 									}
 								}
 								return nil
@@ -245,7 +250,7 @@ func main() {
 							if c.Args().Present() {
 								return printClone(c.Args().First())
 							}
-							resources := app.GetResources()
+							resources := app.GetResourcesNames()
 							sort.Strings(resources)
 							for _, resource := range resources {
 								err = printClone(resource)
@@ -359,7 +364,7 @@ func destroyClones(docker *client.Client, z *zfs.ZFS) error {
 	}
 	isClone := map[string]bool{}
 	for _, c := range clones {
-		isClone[c] = true
+		isClone[c.Name] = true
 	}
 
 	cs, err := docker.ContainerList(context.Background(), types.ContainerListOptions{All: true})
@@ -383,7 +388,7 @@ func destroyClones(docker *client.Client, z *zfs.ZFS) error {
 	}
 	fmt.Println("Destroying DataSets")
 	for _, c := range clones {
-		err = z.Destroy(c)
+		err = z.Destroy(c.Name)
 		if err != nil {
 			return err
 		}
@@ -400,7 +405,7 @@ func destroyClone(clone string, docker *client.Client, z *zfs.ZFS) error {
 	}
 	isClone := map[string]bool{}
 	for _, c := range clones {
-		isClone[c] = true
+		isClone[c.Name] = true
 	}
 	if !isClone[clone] {
 		return fmt.Errorf("could not find clone %s", clone)

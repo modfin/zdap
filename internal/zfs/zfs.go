@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"zdap"
 	"zdap/internal/utils"
 )
 
@@ -21,6 +22,10 @@ type ZFS struct {
 	pool string
 }
 
+const PropCreated = "zdap:created_at"
+const PropOwner = "zdap:owner"
+const PropResource = "zdap:resource"
+const PropSnappedAt = "zdap:snapped_at"
 
 const TimestampFormat = "2006-01-02T15.04.05"
 
@@ -30,24 +35,28 @@ var cloneReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{
 var snapReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}@snap$")
 var baseReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}$")
 
-
-
-
-
-
 func (z *ZFS) GetDatasetBaseNameAt(name string, at time.Time) string {
 	return fmt.Sprintf("zdap-%s-base-%s", name, at.Format(TimestampFormat))
 }
 
-func (z *ZFS) NewDatasetBaseName(name string) string {
-	return z.GetDatasetBaseNameAt(name, time.Now())
+func (z *ZFS) NewDatasetBaseName(name string, t time.Time) string {
+	return z.GetDatasetBaseNameAt(name, t)
 }
 func (z *ZFS) GetDatasetSnapNameAt(name string, at time.Time) string {
 	return fmt.Sprintf("%s@snap", z.GetDatasetBaseNameAt(name, at))
 }
 
-func (z *ZFS) CreateDataset(name string) (string, error) {
+func (z *ZFS) CreateDataset(name string, resource string, creation time.Time) (string, error) {
 	ds, err := zfs.DatasetCreate(fmt.Sprintf("%s/%s", z.pool, name), zfs.DatasetTypeFilesystem, nil)
+	if err != nil {
+		return "", err
+	}
+
+	err = ds.SetUserProperty(PropResource, resource)
+	if err != nil {
+		return "", err
+	}
+	err = ds.SetUserProperty(PropCreated, creation.Format(TimestampFormat))
 	if err != nil {
 		return "", err
 	}
@@ -209,15 +218,90 @@ func (z *ZFS) List() ([]string, error) {
 	return list, nil
 }
 
-func (z *ZFS) ListClones() ([]string, error) {
-	return z.listReg(cloneReg)
+func (z *ZFS) ListClones() ([]zdap.PublicClone, error) {
+
+	var clones []zdap.PublicClone
+
+	cc, err := z.listReg(cloneReg)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range cc {
+		d, err := zfs.DatasetOpen(fmt.Sprintf("%s/%s", z.pool, c))
+		if err != nil {
+			return nil, err
+		}
+		owner, err := d.GetUserProperty(PropOwner)
+		if err != nil {
+			return nil, err
+		}
+		created, err := d.GetUserProperty(PropCreated)
+		if err != nil {
+			return nil, err
+		}
+
+		resource, err := d.GetUserProperty(PropResource)
+		if err != nil {
+			return nil, err
+		}
+		snapped, err := d.GetUserProperty(PropSnappedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		createdAt, _ := time.Parse(TimestampFormat, created.Value)
+		snappedAt, _ := time.Parse(TimestampFormat, snapped.Value)
+
+		d.Close()
+		clones = append(clones, zdap.PublicClone{
+			Name:      c,
+			Resource:  resource.Value,
+			Owner:     owner.Value,
+			CreatedAt: createdAt,
+			SnappedAt: snappedAt,
+		})
+	}
+
+	return clones, nil
 }
 func (z *ZFS) ListBases() ([]string, error) {
 	return z.listReg(baseReg)
 }
 
-func (z *ZFS) ListSnaps() ([]string, error) {
-	return z.listReg(snapReg)
+func (z *ZFS) ListSnaps() ([]zdap.PublicSnap, error) {
+
+	sn, err := z.listReg(snapReg)
+	if err != nil{
+		return nil, err
+	}
+	var snaps []zdap.PublicSnap
+	for _, s := range sn{
+
+		d, err := zfs.DatasetOpen(fmt.Sprintf("%s/%s", z.pool, s))
+		if err != nil{
+			return nil, err
+		}
+
+		created, err := d.GetUserProperty(PropCreated)
+		if err != nil {
+			return nil, err
+		}
+		createdAt, _ := time.Parse(TimestampFormat, created.Value)
+
+		resource, err := d.GetUserProperty(PropResource)
+		if err != nil {
+			return nil, err
+		}
+
+		d.Close()
+		snaps = append(snaps, zdap.PublicSnap{
+			Name:      s,
+			Resource:  resource.Value,
+			CreatedAt: createdAt,
+		})
+	}
+
+	return snaps, nil
 }
 
 func (z *ZFS) listReg(reg *regexp.Regexp) ([]string, error) {
@@ -235,12 +319,23 @@ func (z *ZFS) listReg(reg *regexp.Regexp) ([]string, error) {
 	return list, nil
 }
 
-func (z *ZFS) SnapDataset(name string) error {
-	_, err := zfs.DatasetSnapshot(fmt.Sprintf("%s/%s@snap", z.pool, name), false, nil)
+func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error {
+	ds, err := zfs.DatasetSnapshot(fmt.Sprintf("%s/%s@snap", z.pool, name), false, nil)
+	if err != nil {
+		return err
+	}
+	err = ds.SetUserProperty(PropResource, resource)
+	if err != nil {
+		return err
+	}
+	err = ds.SetUserProperty(PropCreated, created.Format(TimestampFormat))
+	if err != nil {
+		return err
+	}
 	return err
 }
 
-func (z *ZFS) CloneDataset(snapName string) (string, string, error) {
+func (z *ZFS) CloneDataset(owner, snapName string) (string, string, error) {
 
 	parts := strings.Split(snapName, "@")
 	if len(parts) != 2 {
@@ -258,11 +353,42 @@ func (z *ZFS) CloneDataset(snapName string) (string, string, error) {
 		return "", "", errors.New("could not find snapshot to clone")
 	}
 
-	cloneName := fmt.Sprintf("%s-clone-%s.%s", dsName, time.Now().Format(TimestampFormat), utils.RandStringRunes(3))
+	created := time.Now().Format(TimestampFormat)
+
+	cloneName := fmt.Sprintf("%s-clone-%s.%s", dsName, created, utils.RandStringRunes(3))
 	clone, err := snap.Clone(fmt.Sprintf("%s/%s", z.pool, cloneName), nil)
 	if err != nil {
 		return "", "", err
 	}
+
+	err = clone.SetUserProperty(PropOwner, owner)
+	if err != nil {
+		return "", "", err
+	}
+	err = clone.SetUserProperty(PropCreated, created)
+	if err != nil {
+		return "", "", err
+	}
+
+	resource, err := ds.GetUserProperty(PropResource)
+	if err != nil {
+		return "", "", err
+	}
+	err = clone.SetUserProperty(PropResource, resource.Value)
+	if err != nil {
+		return "", "", err
+	}
+	snappedAt, err := ds.GetUserProperty(PropCreated)
+	if err != nil {
+		return "", "", err
+	}
+	err = clone.SetUserProperty(PropSnappedAt, snappedAt.Value)
+	if err != nil {
+		return "", "", err
+	}
+
+
+
 
 	err = clone.Mount("", 0)
 	if err != nil {

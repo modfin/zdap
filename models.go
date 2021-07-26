@@ -6,6 +6,7 @@ import (
 )
 
 type Clone struct {
+	Owner     string
 	Resource  string
 	Name      string
 	Snap      string
@@ -32,12 +33,20 @@ func (c Clone) YamlOverride(listenPort int) string {
 
 type PublicResource struct {
 	Name  string       `json:"name"`
+	Alias string       `json:"alias"`
 	Snaps []PublicSnap `json:"snaps"`
 }
 type PublicSnap struct {
+	Name      string        `json:"name"`
+	Resource  string        `json:"resource"`
 	CreatedAt time.Time     `json:"created_at"`
 	Clones    []PublicClone `json:"clones"`
 }
 type PublicClone struct {
+	Name      string    `json:"name"`
+	Resource  string    `json:"resource"`
+	Owner     string    `json:"owner"`
 	CreatedAt time.Time `json:"created_at"`
+	SnappedAt time.Time `json:"snapped_at"`
+	Port      int       `json:"port"`
 }

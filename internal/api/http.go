@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"github.com/docker/docker/client"
+	"github.com/labstack/echo/v4/middleware"
 	"net/http"
 	"time"
 	"zdap/internal/config"
@@ -14,6 +15,8 @@ import "github.com/labstack/echo/v4"
 
 func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS) error {
 	e := echo.New()
+
+	e.Use(middleware.Logger())
 
 	e.GET("/resources", func(c echo.Context) error {
 		res, err := getResources(app)
@@ -66,7 +69,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 			}
 		}
 
-		clone, err := app.CloneResource(resource, max)
+		clone, err := app.CloneResource("API", resource, max)
 		if err != nil {
 			return err
 		}
@@ -76,7 +79,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		resource := c.Param("resource")
 		at, err := time.Parse(utils.TimestampFormat, c.Param("createdAt"))
 
-		clone, err := app.CloneResource(resource, at)
+		clone, err := app.CloneResource("API", resource, at)
 		if err != nil {
 			return err
 		}

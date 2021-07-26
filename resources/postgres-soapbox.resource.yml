@@ -1,6 +1,7 @@
 
 
 name: postgres-soapbox
+alias: postgres-soapbox2
 docker:
   image: postgres:13
   port: 5432

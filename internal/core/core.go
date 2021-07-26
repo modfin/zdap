@@ -1,7 +1,9 @@
 package core
 
 import (
+	"context"
 	"fmt"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
@@ -124,32 +126,54 @@ func loadResources(dir string) ([]internal.Resource, error) {
 
 func (c *Core) ResourcesExists(resource string ) bool {
 	for _, r := range c.GetResources(){
-		if r == resource{
+		if r.Name == resource{
 			return true
 		}
 	}
 	return false
 }
 
-func (c *Core) GetResources() []string {
+func (c *Core) GetResourcesNames() []string {
 	var l []string
 	for _, r := range c.resources {
 		l = append(l, r.Name)
 	}
 	return l
 }
+func (c *Core) GetResources() []internal.Resource {
+	return c.resources
+}
 
-func (c *Core) GetResourceClones(resourceName string)  (map[time.Time][]time.Time, error) {
+func (c *Core) GetCloneContainers(cloneName string) ([]types.Container, error){
+	containers, err := c.docker.ContainerList(context.Background(), types.ContainerListOptions{})
+	if err != nil{
+		return nil, err
+	}
+	var cc []types.Container
+	for _, c := range containers{
+		for _, name := range c.Names{
+			if strings.HasPrefix(name, "/"+ cloneName){
+				cc = append(cc, c)
+				break
+			}
+		}
+	}
+	return cc, nil
+
+}
+
+func (c *Core) GetResourceClones(resourceName string)  (map[time.Time][]zdap.PublicClone, error) {
 	clones, err := c.z.ListClones()
 	if err != nil {
 		return nil, err
 	}
-	var rclone = map[time.Time][]time.Time{}
+	fmt.Println(clones)
+	var rclone = map[time.Time][]zdap.PublicClone{}
 	for _, clone := range clones {
-		if !strings.HasPrefix(clone, fmt.Sprintf("zdap-%s-",resourceName)){
+		if !strings.HasPrefix(clone.Name, fmt.Sprintf("zdap-%s-",resourceName)){
 			continue
 		}
-		timeStrings := zfs.TimeReg.FindAllString(clone, -1)
+		timeStrings := zfs.TimeReg.FindAllString(clone.Name, -1)
 		if len(timeStrings) != 2{
 			return nil, fmt.Errorf("clone name did not have 2 dates, %s", clone)
 		}
@@ -157,19 +181,14 @@ func (c *Core) GetResourceClones(resourceName string)  (map[time.Time][]time.Tim
 		if err != nil {
 			return nil, err
 		}
-		cloned, err := time.Parse(zfs.TimestampFormat, timeStrings[1])
-		if err != nil {
-			return nil, err
-		}
-
 		arr := rclone[snaped]
-		arr = append(arr, cloned)
+		arr = append(arr, clone)
 		rclone[snaped] = arr
 	}
 	return rclone, nil
 }
 
-func (c *Core) GetResourceSnaps(resourceName string) ([]time.Time, error) {
+func (c *Core) GetResourceSnaps(resourceName string) ([]zdap.PublicSnap, error) {
 	snaps, err := c.z.ListSnaps()
 	if err != nil {
 		return nil, err
@@ -178,17 +197,12 @@ func (c *Core) GetResourceSnaps(resourceName string) ([]time.Time, error) {
 	if err != nil{
 		return nil, err
 	}
-	var rsnap []time.Time
+	var rsnap []zdap.PublicSnap
 	for _, snap := range snaps{
-		if !snapReg.MatchString(snap){
+		if !snapReg.MatchString(snap.Name){
 			continue
 		}
-		timeString := zfs.TimeReg.FindString(snap)
-		t, err := time.Parse(zfs.TimestampFormat, timeString)
-		if err != nil{
-			return nil, err
-		}
-		rsnap = append(rsnap, t)
+		rsnap = append(rsnap, snap)
 	}
 	return rsnap, nil
 }
@@ -210,7 +224,7 @@ func (c *Core) CreateBaseAndSnap(resourceName string) error {
 	return createBaseAndSnap(c.configDir, r, c.docker, c.z)
 }
 
-func (c *Core) CloneResource(resourceName string, at time.Time) (*zdap.Clone, error) {
+func (c *Core) CloneResource(owner string, resourceName string, at time.Time) (*zdap.Clone, error) {
 
 	r := c.getResource(resourceName)
 	if r == nil{
@@ -219,7 +233,7 @@ func (c *Core) CloneResource(resourceName string, at time.Time) (*zdap.Clone, er
 
 	snapName := c.z.GetDatasetSnapNameAt(resourceName, at)
 
-	return createClone(snapName, r, c.docker, c.z)
+	return createClone(owner, snapName, r, c.docker, c.z)
 }
 
 func (c *Core) DestroyClone(cloneName string) error {
@@ -230,7 +244,7 @@ func (c *Core) DestroyClone(cloneName string) error {
 	}
 	var contain bool
 	for _, c := range clones{
-		if c == cloneName{
+		if c.Name == cloneName{
 			contain = true
 			break
 		}

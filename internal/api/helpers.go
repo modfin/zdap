@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 	"zdap"
 	"zdap/internal/core"
@@ -14,9 +15,10 @@ func getResources(app *core.Core) ([]zdap.PublicResource, error) {
 	var resources []zdap.PublicResource
 	for _, r := range app.GetResources() {
 		res := zdap.PublicResource{
-			Name: r,
+			Name: r.Name,
+			Alias: r.Alias,
 		}
-		res.Snaps, err = getSnaps(r, app)
+		res.Snaps, err = getSnaps(r.Name, app)
 		if err != nil {
 			return nil, err
 		}
@@ -30,13 +32,14 @@ func getResources(app *core.Core) ([]zdap.PublicResource, error) {
 func getResource(resource string, app *core.Core) (*zdap.PublicResource, error) {
 	var err error
 	for _, r := range app.GetResources() {
-		if r != resource {
+		if r.Name != resource {
 			continue
 		}
 		res := zdap.PublicResource{
-			Name: r,
+			Name: r.Name,
+			Alias: r.Alias,
 		}
-		res.Snaps, err = getSnaps(r, app)
+		res.Snaps, err = getSnaps(r.Name, app)
 		if err != nil {
 			return nil, err
 		}
@@ -50,29 +53,26 @@ func getSnap(createdAt time.Time, resource string, app *core.Core) (*zdap.Public
 		return nil, err
 	}
 	for _, t := range ss {
-		if !t.Equal(createdAt) {
+		if !t.CreatedAt.Equal(createdAt) {
 			continue
 		}
-		res := zdap.PublicSnap{
-			CreatedAt: t,
-		}
-		res.Clones, err = getClones(res.CreatedAt, resource, app)
-		return &res, nil
+		t.Clones, err = getClones(t.CreatedAt, resource, app)
+		return &t, nil
 	}
 	return nil, fmt.Errorf("could not find snap %s@%s", resource, createdAt.Format(utils.TimestampFormat))
 }
 func getSnaps(resource string, app *core.Core) ([]zdap.PublicSnap, error) {
-	var snaps []zdap.PublicSnap
 	ss, err := app.GetResourceSnaps(resource)
 	if err != nil {
 		return nil, err
 	}
+	var snaps []zdap.PublicSnap
 	for _, t := range ss {
-		res := zdap.PublicSnap{
-			CreatedAt: t,
+		t.Clones, err = getClones(t.CreatedAt, resource, app)
+		if err != nil{
+			return nil, err
 		}
-		res.Clones, err = getClones(res.CreatedAt, resource, app)
-		snaps = append(snaps, res)
+		snaps = append(snaps, t)
 	}
 	sort.Slice(snaps, func(i, j int) bool {
 		return snaps[i].CreatedAt.Before(snaps[j].CreatedAt)
@@ -82,17 +82,15 @@ func getSnaps(resource string, app *core.Core) ([]zdap.PublicSnap, error) {
 
 func getClone(clone time.Time, snap time.Time, resource string, app *core.Core) (*zdap.PublicClone, error) {
 	cc, err := app.GetResourceClones(resource)
+	fmt.Println("CLONES", cc)
 	if err != nil {
 		return nil, err
 	}
 	for _, t := range cc[snap] {
-		if !t.Equal(clone) {
+		if !t.CreatedAt.Equal(clone) {
 			continue
 		}
-		res := zdap.PublicClone{
-			CreatedAt: t,
-		}
-		return &res, nil
+		return &t, nil
 	}
 	return nil, fmt.Errorf("could not find clone %s@%s -> %s", resource, snap.Format(utils.TimestampFormat), clone.Format(utils.TimestampFormat))
 }
@@ -103,14 +101,39 @@ func getClones(snap time.Time, resource string, app *core.Core) ([]zdap.PublicCl
 	if err != nil {
 		return nil, err
 	}
-	for _, t := range cc[snap] {
-		res := zdap.PublicClone{
-			CreatedAt: t,
-		}
-		clones = append(clones, res)
-	}
+	fmt.Println("CLONES", cc)
+	clones =  cc[snap]
 	sort.Slice(clones, func(i, j int) bool {
 		return clones[i].CreatedAt.Before(clones[j].CreatedAt)
 	})
+	for i, c := range clones{
+		c.Port, err = getPortClone(c.Name, app)
+		if err != nil{
+			return nil, err
+		}
+		clones[i] = c
+	}
 	return clones, nil
+}
+
+func getPortClone(clone string, app *core.Core) (int, error){
+
+	cons, err := app.GetCloneContainers(clone)
+	if err != nil{
+		return 0, err
+	}
+
+	for _, c := range cons{
+		for _, name := range c.Names{
+			if strings.HasSuffix(name, "-proxy"){
+				for _, port := range c.Ports{
+					if port.PublicPort > 0{
+						return int(port.PublicPort), nil
+					}
+				}
+			}
+		}
+	}
+	return 0, fmt.Errorf("could not find proxy container for %s", clone)
+
 }
