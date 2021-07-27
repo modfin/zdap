@@ -409,3 +409,43 @@ func (z *ZFS) CloneDataset(owner, snapName string) (string, string, error) {
 
 	return cloneName, path, err
 }
+
+func (z *ZFS) UsedSpace() (uint64, error) {
+	p, err := zfs.PoolOpen(z.pool)
+	if err != nil {
+		return 0, err
+	}
+	defer p.Close()
+	s , err := p.VDevTree()
+	if err != nil {
+		return 0, err
+	}
+	return s.Stat.Alloc, nil
+}
+
+func (z *ZFS) FreeSpace() (uint64, error) {
+	p, err := zfs.PoolOpen(z.pool)
+	if err != nil {
+		return 0, err
+	}
+	defer p.Close()
+	s , err := p.VDevTree()
+	if err != nil {
+		return 0, err
+	}
+	return s.Stat.Space - s.Stat.Alloc, nil
+
+}
+func (z *ZFS) TotalSpace() (uint64, error) {
+	p, err := zfs.PoolOpen(z.pool)
+	if err != nil {
+		return 0, err
+	}
+	defer p.Close()
+	s , err := p.VDevTree()
+	if err != nil {
+		return 0, err
+	}
+	return s.Stat.Space, nil
+
+}

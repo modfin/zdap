@@ -10,6 +10,10 @@ import (
 	"zdap/internal/utils"
 )
 
+func getStatus(owner string, app *core.Core) (zdap.ServerStatus, error){
+	return app.ServerStatus()
+}
+
 func getResources(owner string, app *core.Core) ([]zdap.PublicResource, error) {
 	var err error
 	var resources []zdap.PublicResource

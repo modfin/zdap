@@ -32,6 +32,31 @@ func (c Client) newReq(method string, url string, body io.Reader) (*http.Request
 	return req, nil
 }
 
+func (c Client) Status() (*ServerStatus, error) {
+	req, err := c.newReq("GET", fmt.Sprintf("http://%s/status", c.server), nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("did not get status code 200, got %d", res.StatusCode)
+	}
+
+	defer res.Body.Close()
+	data, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	var status ServerStatus
+
+	err = json.Unmarshal(data, &status)
+	return &status, err
+}
+
+
 func (c Client) GetResources() ([]PublicResource, error) {
 	req, err := c.newReq("GET", fmt.Sprintf("http://%s/resources", c.server), nil)
 	if err != nil {

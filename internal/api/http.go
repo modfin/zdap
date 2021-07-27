@@ -33,6 +33,16 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		}
 	})
 
+
+
+	e.GET("/status", func(c echo.Context) error {
+		res, err := getStatus(c.Get("owner").(string), app)
+		if err != nil {
+			return err
+		}
+		return c.JSON(http.StatusOK, res)
+	})
+
 	e.GET("/resources", func(c echo.Context) error {
 		res, err := getResources(c.Get("owner").(string), app)
 		if err != nil {
