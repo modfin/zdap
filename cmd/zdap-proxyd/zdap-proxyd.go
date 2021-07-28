@@ -81,7 +81,7 @@ func (s TCPProxy) startMetricServer() {
 		var buf [2048]byte
 		n, addr, err := conn.ReadFromUDP(buf[0:])
 		if err != nil {
-			fmt.Println("mertic udp read error:", err)
+			fmt.Println("metric udp read error:", err)
 		}
 
 		payload := strings.ToLower(strings.TrimSpace(string(buf[:n])))
@@ -107,7 +107,7 @@ func (s TCPProxy) startMetricServer() {
 func (s TCPProxy) Start() {
 
 	go s.startMetricServer()
-	fmt.Printf("Starting TCP Procy server at tcp://0.0.0.0:%d, targeting tcp://%s\n", s.ListenPort, s.TargetAddress)
+	fmt.Printf("Starting zdap tcp proxy server at tcp://0.0.0.0:%d, targeting tcp://%s\n", s.ListenPort, s.TargetAddress)
 	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", s.ListenPort))
 	check(err)
 	defer listener.Close()

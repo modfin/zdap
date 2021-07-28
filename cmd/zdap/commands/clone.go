@@ -79,7 +79,9 @@ func findServerCandidate(resource string, user string, servers []string) (string
 
 	return candidates[0].Address, nil
 }
-
+func DestroyCloneCompletion(c *cli.Context) {
+	AttachCloneCompletion(c)
+}
 
 func DestroyClone(c *cli.Context) error {
 	return destroyClone(c.Args().Slice())
@@ -124,6 +126,9 @@ func destroyClone(args []string) error {
 	return nil
 }
 
+func CloneResourceCompletion(c *cli.Context) {
+	AttachCloneCompletion(c)
+}
 
 func CloneResource(c *cli.Context) error {
 	clone, err := cloneResource(c.Args().Slice())
@@ -207,6 +212,60 @@ func findClone(servers []string, resource string, cloneName time.Time) (clone *z
 	return
 }
 
+func AttachCloneCompletion(c *cli.Context) {
+	servers, resource, clone, err := parsArgs(c.Args().Slice())
+	if err != nil {
+		return
+	}
+
+	resources, err := ListResourceData(false, false)
+	if err != nil {
+		return
+	}
+	var complets []string
+
+	if resource == "" {
+		for _, res := range resources {
+			complets = append(complets, res.Name)
+		}
+	}
+
+	var server string
+	if len(servers) > 0{
+		server = servers[0]
+	}
+
+	if clone.IsZero() && len(resource) != 0 {
+		for _, res := range resources {
+			if res.Name != resource {
+				continue
+			}
+			for _, s := range res.Snaps {
+				for _, c := range s.Clones {
+					complets = append(complets, c.CreatedAt.Format(utils.TimestampFormat))
+				}
+			}
+		}
+	}
+
+
+	if server == "" && !clone.IsZero() && len(resource) != 0 {
+		for _, res := range resources {
+			if res.Name != resource {
+				continue
+			}
+			for _, s := range res.Snaps {
+				for _, c := range s.Clones {
+					if !clone.Equal(c.CreatedAt){
+						continue
+					}
+					complets = append(complets, fmt.Sprintf("%s:%d", c.Server, c.APIPort))
+				}
+			}
+		}
+	}
+	fmt.Println(strings.Join(complets, "\n"))
+}
 func AttachClone(c *cli.Context) error {
 
 	var err error
@@ -333,18 +392,35 @@ func AttachClone(c *cli.Context) error {
 	}
 	return ioutil.WriteFile(settings.Override, overrideData, 0644)
 }
+
+func DetachCloneCompletion(c *cli.Context) {
+	settings, err := LoadSettings()
+	if err != nil {
+		return
+	}
+	overrideData, err := ioutil.ReadFile(settings.Override)
+	if err != nil {
+		return
+	}
+	var override compose.DockerCompose
+	err = yaml.Unmarshal(overrideData, &override)
+	if err != nil {
+		return
+	}
+	args := c.Args().Slice()
+	for k, _ := range override.Services {
+		if utils.StringSliceContains(args, k) {
+			continue
+		}
+		fmt.Println(k)
+	}
+}
+
 func DetachClone(c *cli.Context) error {
 
 	var err error
-	cfg, err := getConfig()
-	if err != nil {
-		return err
-	}
 
-	servers, resource, _, err := parsArgs(c.Args().Slice())
-	if err != nil {
-		return err
-	}
+	resources := c.Args().Slice()
 
 	settings, err := LoadSettings()
 	if err != nil {
@@ -374,61 +450,51 @@ func DetachClone(c *cli.Context) error {
 		override.Services = map[string]*compose.Container{}
 	}
 
-	original := docker.Services[resource]
-	if original == nil && !c.Bool("force") {
-		return fmt.Errorf("the resource, %s is not present in original docker compose file, %s", resource, settings.Compose)
-	}
+	for _, resource := range resources {
 
-	current := override.Services[resource]
-	if current == nil {
-		return fmt.Errorf("the resource, %s, you are trying to detach does not exist in overrides", resource)
-	}
-
-	if len(servers) == 0 {
-		servers = cfg.Servers
-	}
-
-	labels := map[string]string{}
-
-	rawLabels, ok := current.Labels.([]interface{})
-	if !ok {
-		fmt.Println(reflect.TypeOf(current.Labels))
-		return fmt.Errorf("labels are missing for override to get the compleat context")
-	}
-	for _, l := range rawLabels {
-		label, ok := l.(string)
-		if !ok{
-			continue
+		original := docker.Services[resource]
+		if original == nil && !c.Bool("force") {
+			return fmt.Errorf("the resource, %s is not present in original docker compose file, %s", resource, settings.Compose)
 		}
-		parts := strings.Split(label, "=")
-		if len(parts) != 2 {
-			continue
+
+		current := override.Services[resource]
+		if current == nil {
+			return fmt.Errorf("the resource, %s, you are trying to detach does not exist in overrides", resource)
 		}
-		labels[parts[0]] = parts[1]
-	}
 
-	//
-	//fmt.Sprintf("zdap.resource=%s", clone.Resource),
-	//	fmt.Sprintf("zdap.clone=%s", clone.CreatedAt.Format(utils.TimestampFormat)),
-	//	fmt.Sprintf("zdap.origin=%s", clone.Server),
-	//	fmt.Sprintf("zdap.api_port=%d", clone.APIPort),
-	//	fmt.Sprintf("zdap.port=%d", clone.Port),
+		labels := map[string]string{}
 
-	if c.Bool("destroy"){
-		err := destroyClone([]string{
-			labels["zdap.resource"],
-			labels["zdap.clone"],
-			fmt.Sprintf("@%s:%s", labels["zdap.origin"], labels["zdap.api_port"]),
-		})
-		if err != nil{
-			fmt.Printf("Error destoying clone, %v\n", err)
-			err = nil
+		rawLabels, ok := current.Labels.([]interface{})
+		if !ok {
+			fmt.Println(reflect.TypeOf(current.Labels))
+			return fmt.Errorf("labels are missing for override to get the compleat context")
 		}
+		for _, l := range rawLabels {
+			label, ok := l.(string)
+			if !ok {
+				continue
+			}
+			parts := strings.Split(label, "=")
+			if len(parts) != 2 {
+				continue
+			}
+			labels[parts[0]] = parts[1]
+		}
+
+		if c.Bool("destroy") {
+			err := destroyClone([]string{
+				labels["zdap.resource"],
+				labels["zdap.clone"],
+				fmt.Sprintf("@%s:%s", labels["zdap.origin"], labels["zdap.api_port"]),
+			})
+			if err != nil {
+				fmt.Printf("Error destoying clone, %v\n", err)
+				err = nil
+			}
+		}
+
+		delete(override.Services, resource)
 	}
-
-
-
-	delete(override.Services, resource)
 	overrideData, err = yaml.Marshal(override)
 	if err != nil {
 		return err

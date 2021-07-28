@@ -15,6 +15,37 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			{
+				Name:   "gen-auto-complete",
+				Usage:  "auto complete installation scripts",
+				Hidden: true,
+				Subcommands: []*cli.Command{
+					{
+						Name:   "bash",
+						Action: func(context *cli.Context) error {
+							fmt.Printf("%s\n", commands.BashCompletion)
+							return nil
+						},
+					},
+					{
+						Name:   "zsh",
+						Action: func(context *cli.Context) error {
+
+							fmt.Printf("%s\n", commands.ZshCompletion)
+							return nil
+						},
+					},
+					{
+						Name:   "fish",
+						Action: func(context *cli.Context) error {
+
+							fmt.Printf("%s\n", commands.ZshCompletion)
+							return nil
+						},
+					},
+
+				},
+			},
+			{
 				Name:  "init",
 				Usage: "initializes repo with zdap",
 				Flags: []cli.Flag{
@@ -49,6 +80,7 @@ func main() {
 					},
 				},
 				Action: commands.AttachClone,
+				BashComplete: commands.AttachCloneCompletion,
 			},
 			{
 				Name:   "detach",
@@ -59,9 +91,13 @@ func main() {
 						DefaultText: "true",
 						Value: true,
 					},
+					&cli.BoolFlag{
+						Name:  "force",
+					},
 				},
 				Usage:  "detaches a remote clone in docker-compose.override file",
 				Action: commands.DetachClone,
+				BashComplete: commands.DetachCloneCompletion,
 			},
 
 			{
@@ -72,6 +108,7 @@ func main() {
 						Name:   "user",
 						Usage:  "set the user",
 						Action: commands.SetUser,
+						BashComplete: commands.SetUserCompletion,
 					},
 				},
 			},
@@ -94,6 +131,7 @@ func main() {
 						Name:   "origin",
 						Usage:  "removes one or more origin servers",
 						Action: commands.RemoveOrigin,
+						BashComplete:  commands.RemoveOriginCompletion,
 					},
 				},
 			},
@@ -101,11 +139,13 @@ func main() {
 				Name:   "clone",
 				Usage:  "clone a snapshot",
 				Action: commands.CloneResource,
+				BashComplete:  commands.CloneResourceCompletion,
 			},
 			{
 				Name:   "destroy",
 				Usage:  "destroys a clone",
 				Action: commands.DestroyClone,
+				BashComplete: commands.DestroyCloneCompletion,
 			},
 			{
 				Name:  "list",
@@ -130,9 +170,9 @@ func main() {
 						Name: "snaps",
 						Flags: []cli.Flag{
 							&cli.BoolFlag{Name: "all"},
-							&cli.BoolFlag{Name: "attached"},
 						},
 						Action: commands.ListSnaps,
+						BashComplete: commands.ResourceListCompletion,
 					},
 					{
 						Name: "clones",
@@ -142,12 +182,14 @@ func main() {
 							&cli.StringFlag{Name: "format"},
 						},
 						Action: commands.ListClones,
+						BashComplete: commands.ResourceListCompletion,
 					},
 				},
 			},
+
 		},
 	}
-
+	cliapp.EnableBashCompletion = true
 	err := cliapp.Run(os.Args)
 	if err != nil {
 		fmt.Println("[Error]", err)

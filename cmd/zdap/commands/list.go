@@ -10,21 +10,48 @@ import (
 	"zdap/internal/utils"
 )
 
-
-func filerNonLocalResource(resource []zdap.PublicResource) ([]zdap.PublicResource, error){
+func filerNonLocalResource(resource []zdap.PublicResource) ([]zdap.PublicResource, error) {
 	local, err := GetLocalResources()
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 	var localResource []zdap.PublicResource
-	for _, r := range resource{
-		if utils.StringSliceContains(local, r.Name){
+	for _, r := range resource {
+		if utils.StringSliceContains(local, r.Name) {
 			localResource = append(localResource, r)
 		}
 	}
 	return localResource, err
 }
 
+func ListResourceData(all bool, verbose bool) ([]zdap.PublicResource, error) {
+	cfg, err := getConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	var allResources []zdap.PublicResource
+	for _, s := range cfg.Servers {
+		client := zdap.NewClient(cfg.User, s)
+		resources, err := client.GetResources()
+		if err != nil {
+			if verbose{
+				fmt.Printf("@%s [COULD NOT CONNECT, %v]\n", s, err)
+			}
+			continue
+		}
+
+		if !all {
+			resources, err = filerNonLocalResource(resources)
+			if err != nil {
+				return nil, err
+			}
+		}
+		allResources = append(allResources, resources...)
+	}
+
+	return allResources, nil
+}
 
 func ListResources(c *cli.Context) error {
 	cfg, err := getConfig()
@@ -40,9 +67,9 @@ func ListResources(c *cli.Context) error {
 			continue
 		}
 
-		if !c.Bool("all"){
+		if !c.Bool("all") {
 			resources, err = filerNonLocalResource(resources)
-			if err != nil{
+			if err != nil {
 				return err
 			}
 		}
@@ -57,6 +84,36 @@ func ListResources(c *cli.Context) error {
 		}
 	}
 	return nil
+}
+func ResourceListCompletion(c *cli.Context) {
+	cfg, err := getConfig()
+	if err != nil {
+		return
+	}
+
+	m := map[string]struct{}{}
+	for _, s := range cfg.Servers {
+		client := zdap.NewClient(cfg.User, s)
+		resources, err := client.GetResources()
+		if err != nil {
+			continue
+		}
+		if !c.Bool("all") {
+			resources, err = filerNonLocalResource(resources)
+			if err != nil {
+				continue
+			}
+		}
+		for _, r := range resources{
+			m[r.Name] = struct{}{}
+		}
+	}
+	for name, _ := range m{
+		if utils.StringSliceContains(c.Args().Slice(), name){
+			continue
+		}
+		fmt.Println(name)
+	}
 }
 func ListSnaps(c *cli.Context) error {
 	cfg, err := getConfig()
@@ -77,13 +134,12 @@ func ListSnaps(c *cli.Context) error {
 			continue
 		}
 
-		if !c.Bool("all"){
+		if !c.Bool("all") {
 			resources, err = filerNonLocalResource(resources)
-			if err != nil{
+			if err != nil {
 				return err
 			}
 		}
-
 
 		fmt.Printf("@%s\n", s)
 		r1 := "├"
@@ -114,27 +170,27 @@ func ListClones(c *cli.Context) error {
 		return err
 	}
 
-	var servers []string
+	//var servers []string
 	var lookingForResources []string
-	var cloneName time.Time
+	//var cloneName time.Time
 
 	for _, arg := range c.Args().Slice() {
-		if strings.HasPrefix(arg, "@") {
-			servers = append(servers, arg[1:])
-			continue
-		}
-		if utils.TimestampFormatRegexp.MatchString(arg) {
-			cloneName, err = time.Parse(utils.TimestampFormat, arg)
-			if err != nil {
-				return err
-			}
-			continue
-		}
+		//if strings.HasPrefix(arg, "@") {
+		//	servers = append(servers, arg[1:])
+		//	continue
+		//}
+		//if utils.TimestampFormatRegexp.MatchString(arg) {
+		//	cloneName, err = time.Parse(utils.TimestampFormat, arg)
+		//	if err != nil {
+		//		return err
+		//	}
+		//	continue
+		//}
 		lookingForResources = append(lookingForResources, arg)
 	}
-	if len(servers) == 0 {
-		servers = cfg.Servers
-	}
+	//if len(servers) == 0 {
+	//	servers = cfg.Servers
+	//}
 
 	for _, s := range cfg.Servers {
 		client := zdap.NewClient(cfg.User, s)
@@ -144,9 +200,9 @@ func ListClones(c *cli.Context) error {
 			continue
 		}
 
-		if !c.Bool("all"){
+		if !c.Bool("all") {
 			resources, err = filerNonLocalResource(resources)
-			if err != nil{
+			if err != nil {
 				return err
 			}
 		}
@@ -161,9 +217,9 @@ func ListClones(c *cli.Context) error {
 			for _, snap := range resource.Snaps {
 				var clones []zdap.PublicClone
 				for _, clone := range snap.Clones {
-					if !cloneName.IsZero() && !cloneName.Equal(clone.CreatedAt) {
-						continue
-					}
+					//if !cloneName.IsZero() && !cloneName.Equal(clone.CreatedAt) {
+					//	continue
+					//}
 					clones = append(clones, clone)
 				}
 				snap.Clones = clones
@@ -255,8 +311,6 @@ func ListOrigins(c *cli.Context) error {
 			fmt.Printf("├ Load 1: %.2f \n", stat.Load1)
 			fmt.Printf("├ Load 5: %.2f \n", stat.Load5)
 			fmt.Printf("└ Load 15: %.2f \n", stat.Load15)
-
-
 
 		}
 	}
