@@ -53,7 +53,7 @@ zfs list
 ```
 
 
-## zdapd
+# zdapd
 
 `zdap` is the cli tool that is used by a user in order to create instances of database and attach them to the docker-compose environment    
 
