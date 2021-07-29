@@ -15,7 +15,7 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			{
-				Name:   "gen-auto-complete",
+				Name:   "auto-complete",
 				Usage:  "auto complete installation scripts",
 				Hidden: true,
 				Subcommands: []*cli.Command{
