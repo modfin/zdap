@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/c2h5oh/datasize"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal/compose"
+	"github.com/modfin/zdap/internal/utils"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
@@ -13,9 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"github.com/modfin/zdap"
-	"github.com/modfin/zdap/internal/compose"
-	"github.com/modfin/zdap/internal/utils"
 )
 
 func parsArgs(args []string) (servers []string, resource string, snap time.Time, err error) {
@@ -231,7 +231,7 @@ func AttachCloneCompletion(c *cli.Context) {
 	}
 
 	var server string
-	if len(servers) > 0{
+	if len(servers) > 0 {
 		server = servers[0]
 	}
 
@@ -248,7 +248,6 @@ func AttachCloneCompletion(c *cli.Context) {
 		}
 	}
 
-
 	if server == "" && !clone.IsZero() && len(resource) != 0 {
 		for _, res := range resources {
 			if res.Name != resource {
@@ -256,7 +255,7 @@ func AttachCloneCompletion(c *cli.Context) {
 			}
 			for _, s := range res.Snaps {
 				for _, c := range s.Clones {
-					if !clone.Equal(c.CreatedAt){
+					if !clone.Equal(c.CreatedAt) {
 						continue
 					}
 					complets = append(complets, fmt.Sprintf("%s:%d", c.Server, c.APIPort))

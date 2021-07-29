@@ -135,7 +135,7 @@ func (s TCPProxy) proxy(in net.Conn) {
 
 	fmt.Println(" Dialing recipient")
 	out, err := net.Dial("tcp", s.TargetAddress)
-	if err != nil{
+	if err != nil {
 		fmt.Println("could not dial target", s.TargetAddress)
 		_ = in.Close()
 		return

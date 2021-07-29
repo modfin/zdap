@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal"
+	"github.com/modfin/zdap/internal/zfs"
 	"github.com/patrickmn/go-cache"
 	"github.com/robfig/cron/v3"
 	cload "github.com/shirou/gopsutil/v3/load"
@@ -16,9 +19,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"github.com/modfin/zdap"
-	"github.com/modfin/zdap/internal"
-	"github.com/modfin/zdap/internal/zfs"
 )
 
 type Core struct {

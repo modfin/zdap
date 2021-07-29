@@ -7,18 +7,17 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
-	"github.com/urfave/cli/v2"
-	"os"
-	"sort"
-	"strings"
-	"time"
 	"github.com/modfin/zdap/internal/api"
 	"github.com/modfin/zdap/internal/config"
 	"github.com/modfin/zdap/internal/core"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
+	"github.com/urfave/cli/v2"
+	"os"
+	"sort"
+	"strings"
+	"time"
 )
-
 
 func main() {
 
@@ -27,41 +26,39 @@ func main() {
 	var docker *client.Client
 	var z *zfs.ZFS
 
-	load := func(c *cli.Context) error{
+	load := func(c *cli.Context) error {
 		cfg := config.FromCli(c)
 
 		configDir := cfg.ConfigDir
 		z = zfs.NewZFS(cfg.ZPool)
 		docker, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-		if err != nil{
+		if err != nil {
 			return err
 		}
 
 		app, err = core.NewCore(configDir, cfg.NetworkAddress, cfg.APIPort, docker, z)
-		if err != nil{
+		if err != nil {
 			return err
 		}
 		return nil
 	}
 
-
 	cliapp := &cli.App{
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name: "zpool",
+				Name:  "zpool",
 				Usage: "The zpool used for the zdap, can also be set by env ZFS_POOL=... ",
-
 			},
 			&cli.StringFlag{
-				Name: "config-dir",
+				Name:  "config-dir",
 				Usage: "The dir where all the resource config is stored, can also be set by env CONFIG_DIR=...",
 			},
 			&cli.StringFlag{
-				Name: "network-address",
+				Name:  "network-address",
 				Usage: "The network address of which clients shall connect to, a ip address or a domain, can also be set by env NETWORK_ADDRESS=...",
 			},
 			&cli.IntFlag{
-				Name: "api-port",
+				Name:  "api-port",
 				Usage: "The port used to open a http api server, can also be set by env API_PORT=...",
 			},
 		},
@@ -101,8 +98,8 @@ func main() {
 								Layout: utils.TimestampFormat,
 							},
 							&cli.StringFlag{
-								Name:   "owner",
-								Usage: "the owner of the clone",
+								Name:        "owner",
+								Usage:       "the owner of the clone",
 								DefaultText: "host",
 							},
 						},
@@ -176,7 +173,7 @@ func main() {
 								fmt.Println(resource)
 								for j, snap := range snaps {
 									ochar := "├"
-									if j == len(snaps)-1{
+									if j == len(snaps)-1 {
 										ochar = "└"
 									}
 
@@ -229,7 +226,7 @@ func main() {
 								for j, t := range keys {
 									ochar := "├"
 									ochar2 := "│"
-									if j == len(keys)-1{
+									if j == len(keys)-1 {
 										ochar = "└"
 										ochar2 = " "
 									}
@@ -240,7 +237,7 @@ func main() {
 											char = "└"
 										}
 
-										fmt.Printf("%s %s %s - %s\n",ochar2, char, c.CreatedAt.In(time.UTC).Format(utils.TimestampFormat), c.Owner)
+										fmt.Printf("%s %s %s - %s\n", ochar2, char, c.CreatedAt.In(time.UTC).Format(utils.TimestampFormat), c.Owner)
 									}
 								}
 								return nil
@@ -299,7 +296,7 @@ func main() {
 	cliapp.Before = load
 	err = cliapp.Run(os.Args)
 
-	if err != nil{
+	if err != nil {
 		fmt.Printf("[Error] %v\n", err)
 	}
 }

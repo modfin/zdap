@@ -20,14 +20,14 @@ func main() {
 				Hidden: true,
 				Subcommands: []*cli.Command{
 					{
-						Name:   "bash",
+						Name: "bash",
 						Action: func(context *cli.Context) error {
 							fmt.Printf("%s\n", commands.BashCompletion)
 							return nil
 						},
 					},
 					{
-						Name:   "zsh",
+						Name: "zsh",
 						Action: func(context *cli.Context) error {
 
 							fmt.Printf("%s\n", commands.ZshCompletion)
@@ -35,14 +35,13 @@ func main() {
 						},
 					},
 					{
-						Name:   "fish",
+						Name: "fish",
 						Action: func(context *cli.Context) error {
 
 							fmt.Printf("%s\n", commands.ZshCompletion)
 							return nil
 						},
 					},
-
 				},
 			},
 			{
@@ -69,34 +68,34 @@ func main() {
 				Usage: "attaches a remote clone to docker-compose.override file",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
-						Name: "new",
+						Name:        "new",
 						DefaultText: "true",
-						Usage: "if set, zdap will create a new clone of resource before attaching it",
-						Value: true,
-					},
-					&cli.BoolFlag{
-						Name: "force",
-						Usage: "will attach to the override, even if there is no original service present in docker compose file",
-					},
-				},
-				Action: commands.AttachClone,
-				BashComplete: commands.AttachCloneCompletion,
-			},
-			{
-				Name:   "detach",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  "destroy",
-						Usage: "destroys the clone at origin when being detached",
-						DefaultText: "true",
-						Value: true,
+						Usage:       "if set, zdap will create a new clone of resource before attaching it",
+						Value:       true,
 					},
 					&cli.BoolFlag{
 						Name:  "force",
+						Usage: "will attach to the override, even if there is no original service present in docker compose file",
 					},
 				},
-				Usage:  "detaches a remote clone in docker-compose.override file",
-				Action: commands.DetachClone,
+				Action:       commands.AttachClone,
+				BashComplete: commands.AttachCloneCompletion,
+			},
+			{
+				Name: "detach",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:        "destroy",
+						Usage:       "destroys the clone at origin when being detached",
+						DefaultText: "true",
+						Value:       true,
+					},
+					&cli.BoolFlag{
+						Name: "force",
+					},
+				},
+				Usage:        "detaches a remote clone in docker-compose.override file",
+				Action:       commands.DetachClone,
 				BashComplete: commands.DetachCloneCompletion,
 			},
 
@@ -105,9 +104,9 @@ func main() {
 				Usage: "set things",
 				Subcommands: []*cli.Command{
 					{
-						Name:   "user",
-						Usage:  "set the user",
-						Action: commands.SetUser,
+						Name:         "user",
+						Usage:        "set the user",
+						Action:       commands.SetUser,
 						BashComplete: commands.SetUserCompletion,
 					},
 				},
@@ -128,23 +127,23 @@ func main() {
 				Usage: "remove things",
 				Subcommands: []*cli.Command{
 					{
-						Name:   "origin",
-						Usage:  "removes one or more origin servers",
-						Action: commands.RemoveOrigin,
-						BashComplete:  commands.RemoveOriginCompletion,
+						Name:         "origin",
+						Usage:        "removes one or more origin servers",
+						Action:       commands.RemoveOrigin,
+						BashComplete: commands.RemoveOriginCompletion,
 					},
 				},
 			},
 			{
-				Name:   "clone",
-				Usage:  "clone a snapshot",
-				Action: commands.CloneResource,
-				BashComplete:  commands.CloneResourceCompletion,
+				Name:         "clone",
+				Usage:        "clone a snapshot",
+				Action:       commands.CloneResource,
+				BashComplete: commands.CloneResourceCompletion,
 			},
 			{
-				Name:   "destroy",
-				Usage:  "destroys a clone",
-				Action: commands.DestroyClone,
+				Name:         "destroy",
+				Usage:        "destroys a clone",
+				Action:       commands.DestroyClone,
 				BashComplete: commands.DestroyCloneCompletion,
 			},
 			{
@@ -171,7 +170,7 @@ func main() {
 						Flags: []cli.Flag{
 							&cli.BoolFlag{Name: "all"},
 						},
-						Action: commands.ListSnaps,
+						Action:       commands.ListSnaps,
 						BashComplete: commands.ResourceListCompletion,
 					},
 					{
@@ -181,12 +180,11 @@ func main() {
 							&cli.BoolFlag{Name: "attached"},
 							&cli.StringFlag{Name: "format"},
 						},
-						Action: commands.ListClones,
+						Action:       commands.ListClones,
 						BashComplete: commands.ResourceListCompletion,
 					},
 				},
 			},
-
 		},
 	}
 	cliapp.EnableBashCompletion = true

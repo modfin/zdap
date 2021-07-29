@@ -11,19 +11,20 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal"
+	"github.com/modfin/zdap/internal/utils"
+	"github.com/modfin/zdap/internal/zfs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-	"github.com/modfin/zdap"
-	"github.com/modfin/zdap/internal"
-	"github.com/modfin/zdap/internal/utils"
-	"github.com/modfin/zdap/internal/zfs"
 )
 
 var baseCreationMutex = sync.Mutex{}
+
 func createBaseAndSnap(resourcePath string, r *internal.Resource, docker *client.Client, z *zfs.ZFS) error {
 	baseCreationMutex.Lock()
 	defer baseCreationMutex.Unlock()
@@ -165,6 +166,7 @@ func ensureNetwork(cli *client.Client) (*types.NetworkResource, error) {
 }
 
 var cloneCreationMutex = sync.Mutex{}
+
 func createClone(owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS) (*zdap.PublicClone, error) {
 	cloneCreationMutex.Lock()
 	defer cloneCreationMutex.Unlock()
@@ -197,20 +199,17 @@ func createClone(owner string, snap string, r *internal.Resource, docker *client
 
 	fmt.Println("Creating clone from", candidate)
 
-
 	cloneName, path, err := z.CloneDataset(owner, candidate)
 	if err != nil {
 		return nil, err
 	}
 	fmt.Println(" - clone name", cloneName)
 
-
-
 	resp, err := docker.ContainerCreate(context.Background(), &container.Config{
 		Image:      r.Docker.Image,
 		Env:        r.Docker.Env,
 		Tty:        false,
-		Labels: map[string]string{"owner": owner},
+		Labels:     map[string]string{"owner": owner},
 		Domainname: cloneName,
 		ExposedPorts: nat.PortSet{
 			nat.Port(fmt.Sprintf("%d/tcp", r.Docker.Port)): struct{}{},
@@ -253,7 +252,7 @@ func createClone(owner string, snap string, r *internal.Resource, docker *client
 			nat.Port(fmt.Sprintf("%d/tcp", port)): struct{}{},
 			nat.Port(fmt.Sprintf("%d/udp", port)): struct{}{},
 		},
-		Labels: map[string]string{"owner": owner},
+		Labels:     map[string]string{"owner": owner},
 		Domainname: fmt.Sprintf("%s-proxy", cloneName),
 	}, &container.HostConfig{
 		RestartPolicy: container.RestartPolicy{
@@ -292,7 +291,7 @@ func createClone(owner string, snap string, r *internal.Resource, docker *client
 		Resource:  r.Name,
 		SnappedAt: snappedAt,
 		CreatedAt: createdAt,
-		Owner: owner,
+		Owner:     owner,
 		Port:      port,
 	}, nil
 }

@@ -3,11 +3,11 @@ package commands
 import (
 	"fmt"
 	"github.com/c2h5oh/datasize"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal/utils"
 	"github.com/urfave/cli/v2"
 	"strings"
 	"time"
-	"github.com/modfin/zdap"
-	"github.com/modfin/zdap/internal/utils"
 )
 
 func filerNonLocalResource(resource []zdap.PublicResource) ([]zdap.PublicResource, error) {
@@ -35,7 +35,7 @@ func ListResourceData(all bool, verbose bool) ([]zdap.PublicResource, error) {
 		client := zdap.NewClient(cfg.User, s)
 		resources, err := client.GetResources()
 		if err != nil {
-			if verbose{
+			if verbose {
 				fmt.Printf("@%s [COULD NOT CONNECT, %v]\n", s, err)
 			}
 			continue
@@ -104,12 +104,12 @@ func ResourceListCompletion(c *cli.Context) {
 				continue
 			}
 		}
-		for _, r := range resources{
+		for _, r := range resources {
 			m[r.Name] = struct{}{}
 		}
 	}
-	for name, _ := range m{
-		if utils.StringSliceContains(c.Args().Slice(), name){
+	for name, _ := range m {
+		if utils.StringSliceContains(c.Args().Slice(), name) {
 			continue
 		}
 		fmt.Println(name)

@@ -3,12 +3,12 @@ package zdap
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/modfin/zdap/internal/utils"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"time"
-	"github.com/modfin/zdap/internal/utils"
 )
 
 type Client struct {
@@ -56,7 +56,6 @@ func (c Client) Status() (*ServerStatus, error) {
 	return &status, err
 }
 
-
 func (c Client) GetResources() ([]PublicResource, error) {
 	req, err := c.newReq("GET", fmt.Sprintf("http://%s/resources", c.server), nil)
 	if err != nil {
@@ -86,7 +85,7 @@ func (c Client) CloneSnap(resource string, snap time.Time) (*PublicClone, error)
 	if !snap.IsZero() {
 		snapStr = snap.Format(utils.TimestampFormat)
 	}
-	uri :=  strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/snaps/%s", c.server, resource, snapStr), "/")
+	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/snaps/%s", c.server, resource, snapStr), "/")
 	req, err := c.newReq("POST", uri, nil)
 	if err != nil {
 		return nil, err
@@ -115,7 +114,7 @@ func (c Client) DestroyClone(resource string, clone time.Time) error {
 	if !clone.IsZero() {
 		cloneStr = clone.Format(utils.TimestampFormat)
 	}
-	uri :=  strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/clones/%s", c.server, resource, cloneStr), "/")
+	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/clones/%s", c.server, resource, cloneStr), "/")
 	req, err := c.newReq("DELETE", uri, nil)
 	if err != nil {
 		return err

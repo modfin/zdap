@@ -2,15 +2,15 @@ package api
 
 import (
 	"fmt"
-	"sort"
-	"strings"
-	"time"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal/core"
 	"github.com/modfin/zdap/internal/utils"
+	"sort"
+	"strings"
+	"time"
 )
 
-func getStatus(owner string, app *core.Core) (zdap.ServerStatus, error){
+func getStatus(owner string, app *core.Core) (zdap.ServerStatus, error) {
 	return app.ServerStatus()
 }
 

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"github.com/docker/docker/client"
 	"github.com/labstack/echo/v4/middleware"
-	"net/http"
-	"time"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal/config"
 	"github.com/modfin/zdap/internal/core"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
+	"net/http"
+	"time"
 )
 import "github.com/labstack/echo/v4"
 
@@ -32,8 +32,6 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 			return next(c)
 		}
 	})
-
-
 
 	e.GET("/status", func(c echo.Context) error {
 		res, err := getStatus(c.Get("owner").(string), app)

@@ -3,11 +3,11 @@ package commands
 import (
 	"encoding/json"
 	"errors"
+	"github.com/modfin/zdap/internal/compose"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"github.com/modfin/zdap/internal/compose"
 )
 
 func ensureConfig() (string, error) {
@@ -104,23 +104,22 @@ func LoadSettings() (*Settings, error) {
 	return &s, nil
 }
 
-
-func GetLocalResources() ([]string, error){
+func GetLocalResources() ([]string, error) {
 	s, err := LoadSettings()
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 	data, err := ioutil.ReadFile(s.Compose)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 	var docker compose.DockerCompose
 	err = yaml.Unmarshal(data, &docker)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 	var services []string
-	for k, _ := range docker.Services{
+	for k, _ := range docker.Services {
 		services = append(services, k)
 	}
 

@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/bicomsystems/go-libzfs"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal/utils"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
-	"github.com/modfin/zdap"
-	"github.com/modfin/zdap/internal/utils"
 )
 
 func NewZFS(pool string) *ZFS {
@@ -275,14 +275,14 @@ func (z *ZFS) ListBases() ([]string, error) {
 func (z *ZFS) ListSnaps() ([]zdap.PublicSnap, error) {
 
 	sn, err := z.listReg(snapReg)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 	var snaps []zdap.PublicSnap
-	for _, s := range sn{
+	for _, s := range sn {
 
 		d, err := zfs.DatasetOpen(fmt.Sprintf("%s/%s", z.pool, s))
-		if err != nil{
+		if err != nil {
 			return nil, err
 		}
 
@@ -395,9 +395,6 @@ func (z *ZFS) CloneDataset(owner, snapName string) (string, string, error) {
 		return "", "", err
 	}
 
-
-
-
 	err = clone.Mount("", 0)
 	if err != nil {
 		return "", "", err
@@ -416,7 +413,7 @@ func (z *ZFS) UsedSpace() (uint64, error) {
 		return 0, err
 	}
 	defer p.Close()
-	s , err := p.VDevTree()
+	s, err := p.VDevTree()
 	if err != nil {
 		return 0, err
 	}
@@ -429,7 +426,7 @@ func (z *ZFS) FreeSpace() (uint64, error) {
 		return 0, err
 	}
 	defer p.Close()
-	s , err := p.VDevTree()
+	s, err := p.VDevTree()
 	if err != nil {
 		return 0, err
 	}
@@ -442,7 +439,7 @@ func (z *ZFS) TotalSpace() (uint64, error) {
 		return 0, err
 	}
 	defer p.Close()
-	s , err := p.VDevTree()
+	s, err := p.VDevTree()
 	if err != nil {
 		return 0, err
 	}
