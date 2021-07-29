@@ -42,6 +42,14 @@ apt-get install zfsutils-linux libzfslinux-dev
 Setting up a pool for zdap to use for storing the databases
 ```bash 
 zpool create zdap-pool /dev/sdx1 /dev/sdx2 ...
+zpool list 
+#NAME        SIZE   ALLOC   FREE  CKPOINT  EXPANDSZ   FRAG    CAP  DEDUP    HEALTH  ALTROOT
+#zdap-pool  4,56T  94,5K   4,56T        -         -     0%     0%  1.00x    ONLINE  -
+
+zfs list
+#NAME        USED  AVAIL     REFER  MOUNTPOINT
+#zdap-pool    87K  4,56T       24K  /zdap-pool
+
 ```
 
 
