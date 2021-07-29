@@ -19,22 +19,14 @@ Everyone want there own databses, so the basic idea is for our server to clone t
 
 # Components
 There are three components to `zdap`
-* `zdapd`
-* `zdap` 
-* `zdap-proxyd`
+* `zdapd`       - server 
+* `zdap`        - client commandline tool
+* `zdap-proxyd` - internal proxy
 
  
-## zdapd 
-`zdapd` is the daemon running on the database server that exposes a http api for management.
-
-## zdap
-`zdap` is the cli tool that is used by a user in order to create instances of database and attach them to the docker-compose environment    
-
-## zdap-proxyd 
-`zdap-proxyd` is a tcp proxy that is used in order to link everything together. The proxy is wrapped in a docker container and no installation is requiered 
-
-
 # zdapd
+
+`zdapd` is the daemon running on the database server that exposes a http api for management.
 
 ## Dependency
 * `zfs`
@@ -54,6 +46,8 @@ zpool create zdap-pool /dev/sdx1 /dev/sdx2 ...
 
 
 ## zdapd
+
+`zdap` is the cli tool that is used by a user in order to create instances of database and attach them to the docker-compose environment    
 
 ```bash
 ## Installing
