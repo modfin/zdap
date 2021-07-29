@@ -34,7 +34,7 @@ There are three components to `zdap`
 `zdap-proxyd` is a tcp proxy that is used in order to link everything together. The proxy is wrapped in a docker container and no installation is requiered 
 
 
-#zdapd
+# zdapd
 
 ## Dependency
 * `zfs`
@@ -68,7 +68,7 @@ zdapd --zpool=zdap-pool \
 ```
 
 
-#zdap
+# zdap
 
 ```bash 
 ## Installing
