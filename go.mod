@@ -1,4 +1,4 @@
-module zdap
+module github.com/modfin/zdap
 
 go 1.16
 

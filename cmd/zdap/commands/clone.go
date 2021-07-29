@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"zdap"
-	"zdap/internal/compose"
-	"zdap/internal/utils"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal/compose"
+	"github.com/modfin/zdap/internal/utils"
 )
 
 func parsArgs(args []string) (servers []string, resource string, snap time.Time, err error) {

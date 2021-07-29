@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"zdap/internal/utils"
+	"github.com/modfin/zdap/internal/utils"
 )
 
 type Client struct {

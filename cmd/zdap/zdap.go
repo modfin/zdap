@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/modfin/zdap/cmd/zdap/commands"
 	"github.com/urfave/cli/v2"
 	"os"
-	"zdap/cmd/zdap/commands"
 )
 
 func main() {

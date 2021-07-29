@@ -16,9 +16,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"zdap"
-	"zdap/internal"
-	"zdap/internal/zfs"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal"
+	"github.com/modfin/zdap/internal/zfs"
 )
 
 type Core struct {

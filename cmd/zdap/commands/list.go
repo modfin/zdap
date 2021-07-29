@@ -6,8 +6,8 @@ import (
 	"github.com/urfave/cli/v2"
 	"strings"
 	"time"
-	"zdap"
-	"zdap/internal/utils"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal/utils"
 )
 
 func filerNonLocalResource(resource []zdap.PublicResource) ([]zdap.PublicResource, error) {

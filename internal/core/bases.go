@@ -17,10 +17,10 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"zdap"
-	"zdap/internal"
-	"zdap/internal/utils"
-	"zdap/internal/zfs"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal"
+	"github.com/modfin/zdap/internal/utils"
+	"github.com/modfin/zdap/internal/zfs"
 )
 
 var baseCreationMutex = sync.Mutex{}

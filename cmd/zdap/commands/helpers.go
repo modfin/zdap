@@ -7,7 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"zdap/internal/compose"
+	"github.com/modfin/zdap/internal/compose"
 )
 
 func ensureConfig() (string, error) {

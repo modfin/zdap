@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/user"
 	"sort"
-	"zdap/internal/utils"
+	"github.com/modfin/zdap/internal/utils"
 )
 
 func Init(c *cli.Context) error {

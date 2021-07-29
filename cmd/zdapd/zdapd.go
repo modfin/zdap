@@ -12,11 +12,11 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"zdap/internal/api"
-	"zdap/internal/config"
-	"zdap/internal/core"
-	"zdap/internal/utils"
-	"zdap/internal/zfs"
+	"github.com/modfin/zdap/internal/api"
+	"github.com/modfin/zdap/internal/config"
+	"github.com/modfin/zdap/internal/core"
+	"github.com/modfin/zdap/internal/utils"
+	"github.com/modfin/zdap/internal/zfs"
 )
 
 

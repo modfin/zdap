@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"zdap"
-	"zdap/internal/utils"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal/utils"
 )
 
 func NewZFS(pool string) *ZFS {

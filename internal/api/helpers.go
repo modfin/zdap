@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"zdap"
-	"zdap/internal/core"
-	"zdap/internal/utils"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal/core"
+	"github.com/modfin/zdap/internal/utils"
 )
 
 func getStatus(owner string, app *core.Core) (zdap.ServerStatus, error){
