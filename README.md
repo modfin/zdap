@@ -58,7 +58,7 @@ zdapd --zpool=zdap-pool \
       --config-dir=/path/to/config/dir \
       --network-address=<ip address of the machine> \
       --api-port=43210 \
-      serve
+      serv
 ```
 
 
