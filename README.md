@@ -1,5 +1,5 @@
 
-zdap, zfs-database-access-proxy, is a commandline tool and server ware to offload large databases in a docker compose dev environment to other machines. 
+`zdap`, `zfs-database-access-proxy`, is a commandline tool and server ware to offload large databases in a docker compose dev environment to other machines. 
 
 # Background
 With a sample size of 1, our experience at Modular Finance, is as follows
@@ -12,34 +12,34 @@ Historically most have of us has used stationary computers in order to handle th
 We have for a very long time been completely dockerized, which to us means, that we run our development environment insider docker containers using docker-compose, a long with k8s for production. Our databases for our development environment is simply postgres images running through docker-compose with a mounted volume.     
 
 ## Concept
-The basic concept for zdap is to override a docker-compose file with a proxy, that offloads the database, to a server.
+The basic concept for `zdap` is to override a docker-compose file with a proxy, that offloads the database, to a server.
 
 Everyone want there own databses, so the basic idea is for our server to clone the database into a zfs volume. Since zfs has copy-on-write support, we can utilize snapshots and zfs-clones to provide everyone with their own database instance with zero overhead. 
 
 
 # Components
-There are three components to zdap
-* zdapd
-* zdap 
-* zdap-proxyd
+There are three components to `zdap`
+* `zdapd`
+* `zdap` 
+* `zdap-proxyd`
 
  
 ## zdapd 
-zdapd is the daemon running on the database server that exposes a http api for management.
+`zdapd` is the daemon running on the database server that exposes a http api for management.
 
 ## zdap
-zdap is the cli tool that is used by a user in order to create instances of database and attach them to the docker-compose environment    
+`zdap` is the cli tool that is used by a user in order to create instances of database and attach them to the docker-compose environment    
 
 ## zdap-proxyd 
-zdap-proxyd is a tcp proxy that is used in order to link everything together. The proxy is wrapped in a docker container and no installation is requiered 
+`zdap-proxyd` is a tcp proxy that is used in order to link everything together. The proxy is wrapped in a docker container and no installation is requiered 
 
 
 #zdapd
 
 ## Dependency
-* zfs
-* zfs dev
-* docker
+* `zfs`
+* `zfs dev`
+* `docker`
 
 ## zfs dependency  
 Install zfs
