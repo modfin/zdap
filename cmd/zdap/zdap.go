@@ -38,7 +38,7 @@ func main() {
 						Name: "fish",
 						Action: func(context *cli.Context) error {
 
-							fmt.Printf("%s\n", commands.ZshCompletion)
+							fmt.Printf("%s\n", commands.FishCompletion)
 							return nil
 						},
 					},
