@@ -158,5 +158,13 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		return c.JSON(http.StatusOK, res)
 	})
 
+	fmt.Println("== Loaded Resources ==")
+	for _, r := range app.GetResourcesNames(){
+		fmt.Println(" -", r)
+	}
+	fmt.Println("== Starting Cron ==")
+	fmt.Println(app.Start())
+
+	fmt.Println("== Starting API Server ==")
 	return e.Start(fmt.Sprintf(":%d", cfg.APIPort))
 }

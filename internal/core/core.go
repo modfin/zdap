@@ -48,23 +48,35 @@ func NewCore(configDir string, networkAddress string, apiPort int, docker *clien
 	return c, err
 }
 func (c *Core) Start() error {
+	var ids []cron.EntryID
 	for _, r := range c.resources {
 		r := r
-		fmt.Println("[CRON] Adding cron job", r.Name, "base resource,", r.Cron)
 
-		_, err := c.cron.AddFunc(r.Cron, func() {
+		id, err := c.cron.AddFunc(r.Cron, func() {
 			fmt.Println("[CRON] Starting cron job to create", r.Name, "base resource")
 			err := createBaseAndSnap(c.configDir, &r, c.docker, c.z)
 			if err != nil {
 				fmt.Println("[CRON] Error: could not run cronjob to create base,", err)
 			}
 		})
+		ids = append(ids, id)
+
 		if err != nil {
 			return fmt.Errorf("could not create cron for '%s', %w", r.Cron, err)
 		}
 	}
-
 	c.cron.Start()
+	for i, r := range c.resources {
+		next := time.Time{}
+		if i < len(ids) && ids != nil{
+			next = c.cron.Entry(ids[i]).Next
+		}
+		fmt.Println("[CRON] Adding cron job", r.Name, "base resource,", r.Cron, ". Next exec at", next)
+	}
+
+
+
+
 	return nil
 }
 
