@@ -15,6 +15,10 @@ func ensureConfig() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	err = os.MkdirAll(filepath.Join(dirname, ".zdap"), 755)
+	if err != nil{
+		return "", err
+	}
 	conffile := filepath.Join(dirname, ".zdap", "zdap-config")
 	if _, err := os.Stat(conffile); os.IsNotExist(err) {
 		file, err := os.Create(conffile)
