@@ -322,7 +322,7 @@ func AttachClone(c *cli.Context) error {
 
 	var clone *zdap.PublicClone
 
-	if cloneName.IsZero() && c.Bool("new") {
+	if c.Bool("new") {
 		fmt.Print("Cloning ", resource, "...")
 		clone, err = cloneResource(c.Args().Slice())
 		if err != nil {
@@ -337,7 +337,7 @@ func AttachClone(c *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("done")
+		fmt.Println("done", clone.Name, clone.SnappedAt)
 	}
 
 	if clone.CreatedAt.IsZero() {
