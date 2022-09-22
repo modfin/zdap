@@ -116,8 +116,14 @@ func main() {
 
 							resource := c.Args().First()
 
+							dss, err := z.Open()
+							if err != nil {
+								return err
+							}
+							defer dss.Close()
+
 							if from == nil {
-								snaps, err := app.GetResourceSnaps(resource)
+								snaps, err := app.GetResourceSnaps(dss, resource)
 								if err != nil {
 									return err
 								}
@@ -130,7 +136,7 @@ func main() {
 								from = &snaps[0].CreatedAt
 							}
 
-							clone, err := app.CloneResource(c.String("owner"), resource, *from)
+							clone, err := app.CloneResource(dss, c.String("owner"), resource, *from)
 							if err != nil {
 								return err
 							}
@@ -160,7 +166,13 @@ func main() {
 						Action: func(c *cli.Context) error {
 
 							printSnap := func(resource string) error {
-								snaps, err := app.GetResourceSnaps(resource)
+								dss, err := z.Open()
+								if err != nil {
+									return err
+								}
+								defer dss.Close()
+
+								snaps, err := app.GetResourceSnaps(dss, resource)
 								if err != nil {
 									return err
 								}
@@ -204,7 +216,13 @@ func main() {
 						Action: func(c *cli.Context) error {
 
 							printClone := func(resource string) error {
-								times, err := app.GetResourceClones(resource)
+								dss, err := z.Open()
+								if err != nil {
+									return err
+								}
+								defer dss.Close()
+
+								times, err := app.GetResourceClones(dss, resource)
 								if err != nil {
 									return err
 								}
@@ -355,7 +373,13 @@ func destroyAll(docker *client.Client, z *zfs.ZFS) error {
 func destroyClones(docker *client.Client, z *zfs.ZFS) error {
 	fmt.Println("Destroying Containers")
 
-	clones, err := z.ListClones()
+	dss, err := z.Open()
+	if err != nil {
+		return err
+	}
+	defer dss.Close()
+
+	clones, err := z.ListClones(dss)
 	if err != nil {
 		return err
 	}
@@ -396,7 +420,13 @@ func destroyClones(docker *client.Client, z *zfs.ZFS) error {
 func destroyClone(clone string, docker *client.Client, z *zfs.ZFS) error {
 	fmt.Println("Destroying Containers")
 
-	clones, err := z.ListClones()
+	dss, err := z.Open()
+	if err != nil {
+		return err
+	}
+	defer dss.Close()
+
+	clones, err := z.ListClones(dss)
 	if err != nil {
 		return err
 	}

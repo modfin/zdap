@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+// Dataset currently just wrap the dataset structure from go-libzfs, but will probably be extended in the future.
+type Dataset struct {
+	*zfs.Dataset
+}
+
 func NewZFS(pool string) *ZFS {
 	return &ZFS{
 		pool: pool,
@@ -189,13 +194,7 @@ func (z *ZFS) DestroyAll() error {
 	return nil
 }
 
-func (z *ZFS) List() ([]string, error) {
-	dss, err := zfs.DatasetOpen(z.pool)
-	if err != nil {
-		return nil, err
-	}
-	defer dss.Close()
-
+func (z *ZFS) List(dss *Dataset) ([]string, error) {
 	var list []string
 	for _, ds := range dss.Children {
 		p, err := ds.Path()
@@ -222,19 +221,30 @@ func (z *ZFS) List() ([]string, error) {
 	return list, nil
 }
 
-func (z *ZFS) ListClones() ([]zdap.PublicClone, error) {
+func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 
 	var clones []zdap.PublicClone
 
-	cc, err := z.listReg(cloneReg)
+	cc, err := z.listReg(dss, cloneReg)
 	if err != nil {
 		return nil, err
 	}
-	for _, c := range cc {
-		d, err := zfs.DatasetOpen(fmt.Sprintf("%s/%s", z.pool, c))
+
+	cds := map[string]*zfs.Dataset{}
+	for i, cd := range dss.Children {
+		p, err := cd.Path()
 		if err != nil {
-			return nil, err
+			continue
 		}
+		cds[p] = &dss.Children[i]
+	}
+
+	for _, c := range cc {
+		d, ok := cds[fmt.Sprintf("%s/%s", z.pool, c)]
+		if !ok {
+			return nil, fmt.Errorf("child %s/%s not found", z.pool, c)
+		}
+
 		owner, err := d.GetUserProperty(PropOwner)
 		if err != nil {
 			return nil, err
@@ -256,7 +266,6 @@ func (z *ZFS) ListClones() ([]zdap.PublicClone, error) {
 		createdAt, _ := time.Parse(TimestampFormat, created.Value)
 		snappedAt, _ := time.Parse(TimestampFormat, snapped.Value)
 
-		d.Close()
 		clones = append(clones, zdap.PublicClone{
 			Name:      c,
 			Resource:  resource.Value,
@@ -268,22 +277,34 @@ func (z *ZFS) ListClones() ([]zdap.PublicClone, error) {
 
 	return clones, nil
 }
-func (z *ZFS) ListBases() ([]string, error) {
-	return z.listReg(baseReg)
+func (z *ZFS) ListBases(dss *Dataset) ([]string, error) {
+	return z.listReg(dss, baseReg)
 }
 
-func (z *ZFS) ListSnaps() ([]zdap.PublicSnap, error) {
+func (z *ZFS) ListSnaps(dss *Dataset) ([]zdap.PublicSnap, error) {
 
-	sn, err := z.listReg(snapReg)
+	sn, err := z.listReg(dss, snapReg)
 	if err != nil {
 		return nil, err
 	}
 	var snaps []zdap.PublicSnap
-	for _, s := range sn {
 
-		d, err := zfs.DatasetOpen(fmt.Sprintf("%s/%s", z.pool, s))
-		if err != nil {
-			return nil, err
+	cds := map[string]*zfs.Dataset{}
+	for _, cd := range dss.Children {
+		for i, ccd := range cd.Children {
+			if ccd.IsSnapshot() {
+				p, err := ccd.Path()
+				if err != nil {
+					continue
+				}
+				cds[p] = &cd.Children[i]
+			}
+		}
+	}
+	for _, s := range sn {
+		d, ok := cds[fmt.Sprintf("%s/%s", z.pool, s)]
+		if !ok {
+			return nil, fmt.Errorf("child %s/%s not found", z.pool, s)
 		}
 
 		created, err := d.GetUserProperty(PropCreated)
@@ -297,7 +318,6 @@ func (z *ZFS) ListSnaps() ([]zdap.PublicSnap, error) {
 			return nil, err
 		}
 
-		d.Close()
 		snaps = append(snaps, zdap.PublicSnap{
 			Name:      s,
 			Resource:  resource.Value,
@@ -308,8 +328,8 @@ func (z *ZFS) ListSnaps() ([]zdap.PublicSnap, error) {
 	return snaps, nil
 }
 
-func (z *ZFS) listReg(reg *regexp.Regexp) ([]string, error) {
-	ll, err := z.List()
+func (z *ZFS) listReg(dss *Dataset, reg *regexp.Regexp) ([]string, error) {
+	ll, err := z.List(dss)
 	if err != nil {
 		return nil, err
 	}
@@ -433,6 +453,7 @@ func (z *ZFS) FreeSpace() (uint64, error) {
 	return s.Stat.Space - s.Stat.Alloc, nil
 
 }
+
 func (z *ZFS) TotalSpace() (uint64, error) {
 	p, err := zfs.PoolOpen(z.pool)
 	if err != nil {
@@ -444,5 +465,12 @@ func (z *ZFS) TotalSpace() (uint64, error) {
 		return 0, err
 	}
 	return s.Stat.Space, nil
+}
 
+func (z *ZFS) Open() (*Dataset, error) {
+	dss, err := zfs.DatasetOpen(z.pool)
+	if err != nil {
+		return nil, err
+	}
+	return &Dataset{Dataset: &dss}, nil
 }

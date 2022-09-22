@@ -34,7 +34,13 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	})
 
 	e.GET("/status", func(c echo.Context) error {
-		res, err := getStatus(c.Get("owner").(string), app)
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		res, err := getStatus(dss, c.Get("owner").(string), app)
 		if err != nil {
 			return err
 		}
@@ -42,7 +48,13 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	})
 
 	e.GET("/resources", func(c echo.Context) error {
-		res, err := getResources(c.Get("owner").(string), app)
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		res, err := getResources(dss, c.Get("owner").(string), app)
 		if err != nil {
 			return err
 		}
@@ -50,7 +62,13 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	})
 
 	e.GET("/resources/:resource", func(c echo.Context) error {
-		res, err := getResource(c.Get("owner").(string), c.Param("resource"), app)
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		res, err := getResource(dss, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -58,7 +76,13 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	})
 
 	e.GET("/resources/:resource/clones", func(c echo.Context) error {
-		snaps, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -73,13 +97,19 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	})
 
 	e.DELETE("/resources/:resource/clones", func(c echo.Context) error {
-		snaps, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
 		for _, snap := range snaps {
 			for _, clone := range snap.Clones {
-				err = app.DestroyClone(clone.Name)
+				err = app.DestroyClone(dss, clone.Name)
 				if err != nil {
 					return err
 				}
@@ -89,7 +119,13 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	})
 
 	e.DELETE("/resources/:resource/clones/:time", func(c echo.Context) error {
-		snaps, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -101,7 +137,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		for _, snap := range snaps {
 			for _, clone := range snap.Clones {
 				if clone.CreatedAt.Equal(at) {
-					err = app.DestroyClone(clone.Name)
+					err = app.DestroyClone(dss, clone.Name)
 					return c.NoContent(http.StatusOK)
 				}
 			}
@@ -110,7 +146,13 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	})
 
 	e.GET("/resources/:resource/snaps", func(c echo.Context) error {
-		res, err := getSnaps(c.Get("owner").(string), c.Param("resource"), app)
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		res, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -119,7 +161,14 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 
 	e.POST("/resources/:resource/snaps", func(c echo.Context) error {
 		resource := c.Param("resource")
-		snaps, err := getSnaps(c.Get("owner").(string), resource, app)
+
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		snaps, err := getSnaps(dss, c.Get("owner").(string), resource, app)
 		if err != nil {
 			return err
 		}
@@ -129,7 +178,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 				max = s.CreatedAt
 			}
 		}
-		clone, err := app.CloneResource(c.Get("owner").(string), resource, max)
+		clone, err := app.CloneResource(dss, c.Get("owner").(string), resource, max)
 		if err != nil {
 			return err
 		}
@@ -139,7 +188,13 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		resource := c.Param("resource")
 		at, err := time.Parse(utils.TimestampFormat, c.Param("createdAt"))
 
-		clone, err := app.CloneResource(c.Get("owner").(string), resource, at)
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		clone, err := app.CloneResource(dss, c.Get("owner").(string), resource, at)
 		if err != nil {
 			return err
 		}
@@ -151,7 +206,14 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		if err != nil {
 			return err
 		}
-		res, err := getSnap(c.Get("owner").(string), at, c.Param("resource"), app)
+
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		res, err := getSnap(dss, c.Get("owner").(string), at, c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -159,7 +221,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	})
 
 	fmt.Println("== Loaded Resources ==")
-	for _, r := range app.GetResourcesNames(){
+	for _, r := range app.GetResourcesNames() {
 		fmt.Println(" -", r)
 	}
 	fmt.Println("== Starting Cron ==")
