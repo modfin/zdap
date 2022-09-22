@@ -68,14 +68,11 @@ func (c *Core) Start() error {
 	c.cron.Start()
 	for i, r := range c.resources {
 		next := time.Time{}
-		if i < len(ids) && ids != nil{
+		if i < len(ids) && ids != nil {
 			next = c.cron.Entry(ids[i]).Next
 		}
 		fmt.Println("[CRON] Adding cron job", r.Name, "base resource,", r.Cron, ". Next exec at", next)
 	}
-
-
-
 
 	return nil
 }
@@ -189,8 +186,8 @@ func (c *Core) GetCloneContainers(cloneName string) ([]types.Container, error) {
 
 }
 
-func (c *Core) GetResourceClones(resourceName string) (map[time.Time][]zdap.PublicClone, error) {
-	clones, err := c.z.ListClones()
+func (c *Core) GetResourceClones(dss *zfs.Dataset, resourceName string) (map[time.Time][]zdap.PublicClone, error) {
+	clones, err := c.z.ListClones(dss)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +200,7 @@ func (c *Core) GetResourceClones(resourceName string) (map[time.Time][]zdap.Publ
 		}
 		timeStrings := zfs.TimeReg.FindAllString(clone.Name, -1)
 		if len(timeStrings) != 2 {
-			return nil, fmt.Errorf("clone name did not have 2 dates, %s", clone)
+			return nil, fmt.Errorf("clone name did not have 2 dates, %#v", clone)
 		}
 		snaped, err := time.Parse(zfs.TimestampFormat, timeStrings[0])
 		if err != nil {
@@ -216,8 +213,8 @@ func (c *Core) GetResourceClones(resourceName string) (map[time.Time][]zdap.Publ
 	return rclone, nil
 }
 
-func (c *Core) GetResourceSnaps(resourceName string) ([]zdap.PublicSnap, error) {
-	snaps, err := c.z.ListSnaps()
+func (c *Core) GetResourceSnaps(dss *zfs.Dataset, resourceName string) ([]zdap.PublicSnap, error) {
+	snaps, err := c.z.ListSnaps(dss)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +249,7 @@ func (c *Core) CreateBaseAndSnap(resourceName string) error {
 	return createBaseAndSnap(c.configDir, r, c.docker, c.z)
 }
 
-func (c *Core) CloneResource(owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
+func (c *Core) CloneResource(dss *zfs.Dataset, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
 
 	r := c.getResource(resourceName)
 	if r == nil {
@@ -261,7 +258,7 @@ func (c *Core) CloneResource(owner string, resourceName string, at time.Time) (*
 
 	snapName := c.z.GetDatasetSnapNameAt(resourceName, at)
 
-	clone, err := createClone(owner, snapName, r, c.docker, c.z)
+	clone, err := createClone(dss, owner, snapName, r, c.docker, c.z)
 	if err != nil {
 		return nil, err
 	}
@@ -271,9 +268,9 @@ func (c *Core) CloneResource(owner string, resourceName string, at time.Time) (*
 	return clone, nil
 }
 
-func (c *Core) DestroyClone(cloneName string) error {
+func (c *Core) DestroyClone(dss *zfs.Dataset, cloneName string) error {
 
-	clones, err := c.z.ListClones()
+	clones, err := c.z.ListClones(dss)
 	if err != nil {
 		return err
 	}
@@ -291,14 +288,14 @@ func (c *Core) DestroyClone(cloneName string) error {
 	return destroyClone(cloneName, c.docker, c.z)
 }
 
-func (c *Core) ServerStatus() (zdap.ServerStatus, error) {
+func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
 	var s zdap.ServerStatus
 
-	clones, err := c.z.ListClones()
+	clones, err := c.z.ListClones(dss)
 	if err != nil {
 		return s, err
 	}
-	snaps, err := c.z.ListSnaps()
+	snaps, err := c.z.ListSnaps(dss)
 	if err != nil {
 		return s, err
 	}
