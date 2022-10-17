@@ -8,7 +8,7 @@ require (
 	github.com/caarlos0/env v3.5.0+incompatible
 	github.com/docker/docker v20.10.18+incompatible
 	github.com/docker/go-connections v0.4.0
-	github.com/labstack/echo/v4 v4.8.0
+	github.com/labstack/echo/v4 v4.9.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v3 v3.22.8
