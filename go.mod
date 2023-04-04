@@ -6,7 +6,7 @@ require (
 	github.com/bicomsystems/go-libzfs v0.3.5
 	github.com/c2h5oh/datasize v0.0.0-20220606134207-859f65c6625b
 	github.com/caarlos0/env v3.5.0+incompatible
-	github.com/docker/docker v20.10.21+incompatible
+	github.com/docker/docker v20.10.24+incompatible
 	github.com/docker/go-connections v0.4.0
 	github.com/labstack/echo/v4 v4.9.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
