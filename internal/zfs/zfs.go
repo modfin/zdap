@@ -433,7 +433,6 @@ func (z *ZFS) UsedSpace(dss *Dataset) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer p.Close()
 	s, err := p.VDevTree()
 	if err != nil {
 		return 0, err
@@ -447,7 +446,6 @@ func (z *ZFS) FreeSpace(dss *Dataset) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer p.Close()
 	s, err := p.VDevTree()
 	if err != nil {
 		return 0, err
@@ -462,7 +460,6 @@ func (z *ZFS) TotalSpace(dss *Dataset) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer p.Close()
 	s, err := p.VDevTree()
 	if err != nil {
 		return 0, err
