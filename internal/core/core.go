@@ -307,11 +307,11 @@ func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
 	if err != nil {
 		return s, fmt.Errorf("could not get UsedSpace, %w", err)
 	}
-	s.FreeDisk, err = c.z.FreeSpace()
+	s.FreeDisk, err = c.z.FreeSpace(dss)
 	if err != nil {
 		return s, fmt.Errorf("could not get FreeSpace, %w", err)
 	}
-	s.TotalDisk, err = c.z.TotalSpace()
+	s.TotalDisk, err = c.z.TotalSpace(dss)
 	if err != nil {
 		return s, fmt.Errorf("could not get TotalSpace, %w", err)
 	}
