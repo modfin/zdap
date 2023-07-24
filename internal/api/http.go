@@ -36,13 +36,13 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	e.GET("/status", func(c echo.Context) error {
 		dss, err := z.Open()
 		if err != nil {
-			return err
+			return fmt.Errorf("could not open dataset, %w", err)
 		}
 		defer dss.Close()
 
 		res, err := getStatus(dss, c.Get("owner").(string), app)
 		if err != nil {
-			return err
+			return fmt.Errorf("could not retrive status, %w", err)
 		}
 		return c.JSON(http.StatusOK, res)
 	})

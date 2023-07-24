@@ -293,11 +293,11 @@ func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
 
 	clones, err := c.z.ListClones(dss)
 	if err != nil {
-		return s, err
+		return s, fmt.Errorf("could not list clones, %w", err)
 	}
 	snaps, err := c.z.ListSnaps(dss)
 	if err != nil {
-		return s, err
+		return s, fmt.Errorf("could not list snaps, %w", err)
 	}
 
 	s.Clones = len(clones)
@@ -305,24 +305,24 @@ func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
 	s.Address = c.networkAddress
 	s.UsedDisk, err = c.z.UsedSpace()
 	if err != nil {
-		return s, err
+		return s, fmt.Errorf("could not get UsedSpace, %w", err)
 	}
 	s.FreeDisk, err = c.z.FreeSpace()
 	if err != nil {
-		return s, err
+		return s, fmt.Errorf("could not get FreeSpace, %w", err)
 	}
 	s.TotalDisk, err = c.z.TotalSpace()
 	if err != nil {
-		return s, err
+		return s, fmt.Errorf("could not get TotalSpace, %w", err)
 	}
 
 	mem, err := cmem.VirtualMemory()
 	if err != nil {
-		return s, err
+		return s, fmt.Errorf("could not get VirtualMemory, %w", err)
 	}
 	load, err := cload.Avg()
 	if err != nil {
-		return s, err
+		return s, fmt.Errorf("could not get load, %w", err)
 	}
 
 	s.Load1 = load.Load1
