@@ -427,8 +427,9 @@ func (z *ZFS) CloneDataset(owner, snapName string) (string, string, error) {
 	return cloneName, path, err
 }
 
-func (z *ZFS) UsedSpace() (uint64, error) {
-	p, err := zfs.PoolOpen(z.pool)
+func (z *ZFS) UsedSpace(dss *Dataset) (uint64, error) {
+	//p, err := zfs.PoolOpen(z.pool)
+	p, err := dss.Pool()
 	if err != nil {
 		return 0, err
 	}
@@ -440,8 +441,9 @@ func (z *ZFS) UsedSpace() (uint64, error) {
 	return s.Stat.Alloc, nil
 }
 
-func (z *ZFS) FreeSpace() (uint64, error) {
-	p, err := zfs.PoolOpen(z.pool)
+func (z *ZFS) FreeSpace(dss *Dataset) (uint64, error) {
+	//p, err := zfs.PoolOpen(z.pool)
+	p, err := dss.Pool()
 	if err != nil {
 		return 0, err
 	}
@@ -454,8 +456,9 @@ func (z *ZFS) FreeSpace() (uint64, error) {
 
 }
 
-func (z *ZFS) TotalSpace() (uint64, error) {
-	p, err := zfs.PoolOpen(z.pool)
+func (z *ZFS) TotalSpace(dss *Dataset) (uint64, error) {
+	//p, err := zfs.PoolOpen(z.pool)
+	p, err := dss.Pool()
 	if err != nil {
 		return 0, err
 	}
