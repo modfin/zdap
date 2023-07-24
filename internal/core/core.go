@@ -303,7 +303,7 @@ func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
 	s.Clones = len(clones)
 	s.Snaps = len(snaps)
 	s.Address = c.networkAddress
-	s.UsedDisk, err = c.z.UsedSpace()
+	s.UsedDisk, err = c.z.UsedSpace(dss)
 	if err != nil {
 		return s, fmt.Errorf("could not get UsedSpace, %w", err)
 	}
