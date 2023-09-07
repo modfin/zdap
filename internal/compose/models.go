@@ -76,7 +76,7 @@ type Container struct {
 	DNS             []string             `yaml:",omitempty"`
 	Domain          []string             `yaml:",omitempty"`
 	Entrypoint      string               `yaml:",omitempty"`
-	EnvFile         []string             `yaml:",omitempty"`
+	EnvFile         []string             `yaml:"env_file,omitempty"`
 	Environment     interface{}          `yaml:",omitempty"` // []string or map[string]string
 	Essential       *bool                `yaml:",omitempty"`
 	Expose          []int                `yaml:",omitempty"`
