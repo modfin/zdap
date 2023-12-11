@@ -264,16 +264,21 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 		if err != nil {
 			return nil, err
 		}
+		clonePooled, err := d.GetUserProperty(PropClonePooled)
+		if err != nil {
+			return nil, err
+		}
 
 		createdAt, _ := time.Parse(TimestampFormat, created.Value)
 		snappedAt, _ := time.Parse(TimestampFormat, snapped.Value)
 
 		clones = append(clones, zdap.PublicClone{
-			Name:      c,
-			Resource:  resource.Value,
-			Owner:     owner.Value,
-			CreatedAt: createdAt,
-			SnappedAt: snappedAt,
+			Name:        c,
+			Resource:    resource.Value,
+			Owner:       owner.Value,
+			CreatedAt:   createdAt,
+			SnappedAt:   snappedAt,
+			ClonePooled: clonePooled.Value == "true",
 		})
 	}
 
