@@ -40,6 +40,9 @@ func (c *ClonePool) Start(z *zfs.ZFS, ctx *cloning.CloneContext) {
 
 			nbrClones := len(c.clones)
 			missingClones := c.resource.ClonePool.MinClones - nbrClones
+			log.Infof("min: %d", c.resource.ClonePool.MinClones)
+			log.Infof("nbr: %d", nbrClones)
+			log.Infof("missing: %d", missingClones)
 			for i := 0; i < missingClones; i++ {
 				log.Info("Adding clones")
 				c.addCloneToPool(ctx, dss, c.resource)
