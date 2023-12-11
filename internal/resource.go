@@ -7,7 +7,7 @@ type Resource struct {
 	Creation  string
 	Cron      string
 	Docker    Docker
-	ClonePool ClonePool `yaml:"clone_pool"`
+	ClonePool ClonePoolConfig `yaml:"clone_pool"`
 }
 
 type Docker struct {
@@ -18,7 +18,7 @@ type Docker struct {
 	Healthcheck string
 }
 
-type ClonePool struct {
+type ClonePoolConfig struct {
 	ResetOnNewSnap         bool `yaml:"reset_on_new_snap"`
 	MinClones              int  `yaml:"min_clones"`
 	MaxClones              int  `yaml:"max_clones"`

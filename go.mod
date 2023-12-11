@@ -9,6 +9,7 @@ require (
 	github.com/docker/docker v24.0.7+incompatible
 	github.com/docker/go-connections v0.4.0
 	github.com/labstack/echo/v4 v4.9.0
+	github.com/modfin/henry v0.0.0-20230824150253-35f12224ee68
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v3 v3.22.10
