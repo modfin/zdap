@@ -106,8 +106,9 @@ func createBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 		return err
 	}
 
-	d := time.Millisecond
-	err = docker.ContainerStop(context.Background(), resp.ID, &d)
+	//d := time.Millisecond
+	d := 1
+	err = docker.ContainerStop(context.Background(), resp.ID, container.StopOptions{Timeout: &d})
 	if err != nil {
 		return err
 	}
@@ -309,8 +310,9 @@ func destroyClone(cloneName string, docker *client.Client, z *zfs.ZFS) error {
 			if strings.HasPrefix(name, "/"+cloneName) {
 				if c.State == "running" {
 					fmt.Println(" - Killing", name)
-					d := time.Millisecond
-					err = docker.ContainerStop(context.Background(), c.ID, &d)
+					//d := time.Millisecond
+					d := 1
+					err = docker.ContainerStop(context.Background(), c.ID, container.StopOptions{Timeout: &d})
 					if err != nil {
 						return err
 					}

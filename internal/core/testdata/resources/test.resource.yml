@@ -1,0 +1,19 @@
+name: postgres-trade
+docker:
+  image: eu.gcr.io/spidercave/lib/postgres:15.3
+  port: 5432
+  volume: /var/lib/postgresql/data
+  env:
+    - POSTGRES_PASSWORD=qwerty
+
+  ## Health Check must exist in order to know when the container is really started
+  healthcheck: echo SELECT 1 | psql -U postgres
+cron: 45 4 * * *
+retrieval: ./postgres-trade.retrieval.sh
+creation: ./postgres-trade.creation.sh
+clone_pool:
+  reset_on_new_snap: true
+  min_clones: 8
+  max_clones: 16
+  claim_max_timeout_seconds: 300
+  claim_taints_clone: true
