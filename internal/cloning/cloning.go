@@ -206,3 +206,22 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		Port:      port,
 	}, nil
 }
+
+func (c *CloneContext) DestroyClone(dss *zfs.Dataset, cloneName string) error {
+	clones, err := c.Z.ListClones(dss)
+	if err != nil {
+		return err
+	}
+	var contain bool
+	for _, c := range clones {
+		if c.Name == cloneName {
+			contain = true
+			break
+		}
+	}
+	if !contain {
+		return fmt.Errorf("clone, %s, does not exist", cloneName)
+	}
+
+	return bases.DestroyClone(cloneName, c.Docker, c.Z)
+}

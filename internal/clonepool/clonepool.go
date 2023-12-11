@@ -1,6 +1,7 @@
 package clonepool
 
 import (
+	"fmt"
 	"github.com/labstack/gommon/log"
 	"github.com/modfin/henry/slicez"
 	"github.com/modfin/zdap"
@@ -12,7 +13,6 @@ import (
 )
 
 type ClonePool struct {
-	clones   []zdap.PublicClone
 	resource internal.Resource
 }
 
@@ -28,17 +28,15 @@ func (c *ClonePool) Start(z *zfs.ZFS, ctx *cloning.CloneContext) {
 			if err != nil {
 				panic("could not open dataset")
 			}
-			clones, err := z.ListClones(dss)
-			if err != nil {
-				panic("could not list clones")
-			}
-			c.clones = slicez.Filter(clones, func(clone zdap.PublicClone) bool {
-				log.Info(clone.ClonePooled)
-				log.Info(clone.Resource)
-				return clone.ClonePooled && clone.Resource == c.resource.Name
-			})
 
-			nbrClones := len(c.clones)
+			allClones, err := c.readPooled(z, dss)
+			if err != nil {
+				fmt.Printf("could not read pooled clones, error %s", err)
+				continue
+			}
+			clones := pruneExpired(ctx, dss, allClones)
+
+			nbrClones := len(clones)
 			missingClones := c.resource.ClonePool.MinClones - nbrClones
 			log.Infof("min: %d", c.resource.ClonePool.MinClones)
 			log.Infof("nbr: %d", nbrClones)
@@ -71,4 +69,30 @@ func (c *ClonePool) addCloneToPool(cc *cloning.CloneContext, dataset *zfs.Datase
 	if err != nil {
 		panic(err)
 	}
+}
+
+func (c *ClonePool) readPooled(z *zfs.ZFS, dss *zfs.Dataset) ([]zdap.PublicClone, error) {
+	clones, err := z.ListClones(dss)
+	if err != nil {
+		return nil, fmt.Errorf("could not list clones")
+	}
+	return slicez.Filter(clones, func(clone zdap.PublicClone) bool {
+		return clone.ClonePooled && clone.Resource == c.resource.Name
+	}), nil
+}
+
+func pruneExpired(cc *cloning.CloneContext, dss *zfs.Dataset, clones []zdap.PublicClone) []zdap.PublicClone {
+	t := time.Now()
+	expired := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
+		return clone.ExpiresAt != nil && clone.ExpiresAt.Before(t)
+	})
+
+	for _, e := range expired {
+		err := cc.DestroyClone(dss, e.Name)
+		fmt.Printf("could not destroy clone %s, error: %s", e.Name, err.Error())
+	}
+
+	return slicez.Filter(clones, func(clone zdap.PublicClone) bool {
+		return clone.ExpiresAt == nil || !clone.ExpiresAt.Before(t)
+	})
 }

@@ -17,15 +17,16 @@ type PublicSnap struct {
 	Clones    []PublicClone `json:"clones"`
 }
 type PublicClone struct {
-	Name        string    `json:"name"`
-	Resource    string    `json:"resource"`
-	Owner       string    `json:"owner"`
-	CreatedAt   time.Time `json:"created_at"`
-	SnappedAt   time.Time `json:"snapped_at"`
-	Server      string    `json:"server"`
-	APIPort     int       `json:"api_port"`
-	Port        int       `json:"port"`
-	ClonePooled bool      `json:"clone_pooled"`
+	Name        string     `json:"name"`
+	Resource    string     `json:"resource"`
+	Owner       string     `json:"owner"`
+	CreatedAt   time.Time  `json:"created_at"`
+	SnappedAt   time.Time  `json:"snapped_at"`
+	Server      string     `json:"server"`
+	APIPort     int        `json:"api_port"`
+	Port        int        `json:"port"`
+	ClonePooled bool       `json:"clone_pooled"`
+	ExpiresAt   *time.Time `json:"expires_at"`
 }
 
 func (c *PublicClone) YAML(listenPort int) string {
