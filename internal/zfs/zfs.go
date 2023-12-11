@@ -32,7 +32,7 @@ const PropCreated = "zdap:created_at"
 const PropOwner = "zdap:owner"
 const PropResource = "zdap:resource"
 const PropSnappedAt = "zdap:snapped_at"
-const PropConnectionPooled = "zdap:connection_pooled"
+const PropClonePooled = "zdap:clone_pooled"
 
 const TimestampFormat = "2006-01-02T15.04.05"
 
@@ -363,7 +363,7 @@ func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error
 	return err
 }
 
-func (z *ZFS) CloneDataset(owner, snapName string, connectionPooled bool) (string, string, error) {
+func (z *ZFS) CloneDataset(owner, snapName string, clonePooled bool) (string, string, error) {
 
 	parts := strings.Split(snapName, "@")
 	if len(parts) != 2 {
@@ -416,7 +416,7 @@ func (z *ZFS) CloneDataset(owner, snapName string, connectionPooled bool) (strin
 	if err != nil {
 		return "", "", err
 	}
-	err = clone.SetUserProperty(PropConnectionPooled, strconv.FormatBool(connectionPooled))
+	err = clone.SetUserProperty(PropClonePooled, strconv.FormatBool(clonePooled))
 
 	err = clone.Mount("", 0)
 	if err != nil {

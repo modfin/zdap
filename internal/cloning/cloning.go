@@ -78,7 +78,7 @@ func (c *CloneContext) GetResourceSnaps(dss *zfs.Dataset, resourceName string) (
 
 var cloneCreationMutex = sync.Mutex{}
 
-func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, connectionPooled bool) (*zdap.PublicClone, error) {
+func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, clonePooled bool) (*zdap.PublicClone, error) {
 	cloneCreationMutex.Lock()
 	defer cloneCreationMutex.Unlock()
 
@@ -110,7 +110,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 
 	fmt.Println("Creating clone from", candidate)
 
-	cloneName, path, err := z.CloneDataset(owner, candidate, connectionPooled)
+	cloneName, path, err := z.CloneDataset(owner, candidate, clonePooled)
 	if err != nil {
 		return nil, err
 	}
