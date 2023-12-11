@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export NETWORK_ADDRESS=10.200.1.212
-export ZPOOL=zdap/databases
+export ZPOOL=/zdap/databases
 export API_PORT=43210
 export CONFIG_DIR=/zdap/config
 
