@@ -23,7 +23,7 @@ func NewClonePool(resource internal.Resource) ClonePool {
 func (c *ClonePool) Start(z *zfs.ZFS, ctx *cloning.CloneContext) {
 	go func() {
 		for {
-			log.Info("Running clonepool")
+			log.Info("Running clonepool for %s", c.resource.Name)
 			dss, err := z.Open()
 			if err != nil {
 				panic("could not open dataset")
@@ -34,8 +34,8 @@ func (c *ClonePool) Start(z *zfs.ZFS, ctx *cloning.CloneContext) {
 			}
 			c.clones = slicez.Filter(clones, func(clone zdap.PublicClone) bool {
 				log.Info(clone.ClonePooled)
-				log.Info(clone.Name)
-				return clone.ClonePooled && clone.Name == c.resource.Name
+				log.Info(clone.Resource)
+				return clone.ClonePooled && clone.Resource == c.resource.Name
 			})
 
 			nbrClones := len(c.clones)
