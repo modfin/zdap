@@ -156,7 +156,7 @@ func main() {
 						Name:  "resources",
 						Usage: "lists available resources / services that can be cloned",
 						Action: func(c *cli.Context) error {
-							fmt.Printf("== Resrources ==\n%s\n", strings.Join(app.GetResourcesNames(), "\n"))
+							fmt.Printf("== Resources ==\n%s\n", strings.Join(app.GetResourcesNames(), "\n"))
 							return nil
 						},
 					},
@@ -327,8 +327,9 @@ func destroyContainer(c types.Container, docker *client.Client) error {
 
 	if c.State == "running" {
 		fmt.Println("- Killing", name)
-		d := time.Millisecond
-		err := docker.ContainerStop(context.Background(), c.ID, &d)
+		//d := time.Millisecond
+		d := 1
+		err := docker.ContainerStop(context.Background(), c.ID, container.StopOptions{Timeout: &d})
 		if err != nil {
 			return err
 		}
