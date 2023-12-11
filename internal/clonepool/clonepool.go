@@ -33,6 +33,8 @@ func (c *ClonePool) Start(z *zfs.ZFS, ctx *cloning.CloneContext) {
 				panic("could not list clones")
 			}
 			c.clones = slicez.Filter(clones, func(clone zdap.PublicClone) bool {
+				log.Info(clone.ClonePooled)
+				log.Info(clone.Name)
 				return clone.ClonePooled && clone.Name == c.resource.Name
 			})
 
