@@ -42,7 +42,7 @@ func (c *ClonePool) Start() {
 
 			clones := c.pruneExpired(dss, allClones)
 			available := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
-				return clone.ExpiresAt == nil
+				return clone.ExpiresAt == nil && clone.Healthy
 			})
 			c.claimLock.Lock()
 			c.ClonesAvailable = len(available)

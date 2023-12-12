@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/modfin/henry/slicez"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/bases"
@@ -206,6 +207,20 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	createdAt, err := time.Parse(zfs.TimestampFormat, string(dates[1]))
 	if err != nil {
 		return nil, err
+	}
+
+	clones, err := z.ListClones(dss)
+	if err != nil {
+		return nil, err
+	}
+
+	matchingClones := slicez.Filter(clones, func(c zdap.PublicClone) bool {
+		return c.Name == cloneName
+	})
+	if matchingClones != nil {
+		m := matchingClones[0]
+		m.Dataset.SetUserProperty("healthy", "true")
+		defer m.Dataset.Close()
 	}
 
 	return &zdap.PublicClone{

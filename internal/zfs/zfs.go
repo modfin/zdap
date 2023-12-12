@@ -270,6 +270,10 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 		if err != nil {
 			return nil, err
 		}
+		healthy, err := d.GetUserProperty(PropClonePooled)
+		if err != nil {
+			return nil, err
+		}
 
 		// TODO for backwards compatibility, should be removed
 		port := 0
@@ -298,6 +302,7 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 			CreatedAt:   createdAt,
 			SnappedAt:   snappedAt,
 			ClonePooled: clonePooled.Value == "true",
+			Healthy:     healthy.Value == "true",
 			Dataset:     d,
 			ExpiresAt:   expiresAt,
 			Port:        port,

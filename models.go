@@ -27,6 +27,7 @@ type PublicClone struct {
 	APIPort     int        `json:"api_port"`
 	Port        int        `json:"port"`
 	ClonePooled bool       `json:"clone_pooled"`
+	Healthy     bool       `json:"healthy"`
 	ExpiresAt   *time.Time `json:"expires_at"`
 	Dataset     *zfs.Dataset
 }
