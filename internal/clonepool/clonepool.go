@@ -141,7 +141,7 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	if claim == nil {
 		return zdap.PublicClone{}, fmt.Errorf("could not find available clone")
 	}
-	defer claim.Dataset.Close()
+	//defer claim.Dataset.Close()
 	maxTimeout := time.Duration(c.resource.ClonePool.ClaimMaxTimeoutSeconds) * time.Second
 	if timeout > maxTimeout {
 		timeout = maxTimeout
