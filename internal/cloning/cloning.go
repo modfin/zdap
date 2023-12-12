@@ -46,7 +46,6 @@ func (c *CloneContext) CloneResourceHandlePooling(dss *zfs.Dataset, owner string
 	}
 
 	snapName := c.Z.GetDatasetSnapNameAt(resourceName, at)
-	fmt.Printf("debug: cloning snapname = %s\n", snapName)
 
 	clone, err := createClone(dss, owner, snapName, r, c.Docker, c.Z, pooled)
 	if err != nil {
