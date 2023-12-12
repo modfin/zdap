@@ -208,7 +208,13 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		return nil, err
 	}
 
-	clones, err := z.ListClones(dss)
+	dss2, err := z.Open()
+	defer dss2.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	clones, err := z.ListClones(dss2)
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +223,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		return c.Name == cloneName
 	})
 	if matchingClones != nil {
+		fmt.Printf("Setting healthy for %s\n", cloneName)
 		m := matchingClones[0]
 		m.Dataset.SetUserProperty("healthy", "true")
 		defer m.Dataset.Close()
