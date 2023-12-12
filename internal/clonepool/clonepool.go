@@ -136,19 +136,25 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	c.claimLock.Lock()
 	defer c.claimLock.Unlock()
 
-	claim, _ := c.getOrAddPooledClone()
+	dss, err := c.cloneContext.Z.Open()
+	if err != nil {
+		return zdap.PublicClone{}, err
+	}
+	defer dss.Close()
+
+	claim, _ := c.getOrAddPooledClone(dss)
 
 	if claim == nil {
 		return zdap.PublicClone{}, fmt.Errorf("could not find available clone")
 	}
-	//defer claim.Dataset.Close()
+	defer claim.Dataset.Close()
 	maxTimeout := time.Duration(c.resource.ClonePool.ClaimMaxTimeoutSeconds) * time.Second
 	if timeout > maxTimeout {
 		timeout = maxTimeout
 	}
 	expires := time.Now().Add(timeout)
 	fmt.Println(claim.Dataset)
-	err := claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
+	err = claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
 	if err != nil {
 		return zdap.PublicClone{}, err
 	}
@@ -159,10 +165,7 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	return *claim, nil
 }
 
-func (c *ClonePool) getPooledClone() (*zdap.PublicClone, error) {
-	dss, err := c.cloneContext.Z.Open()
-	defer dss.Close()
-
+func (c *ClonePool) getPooledClone(dss *zfs.Dataset) (*zdap.PublicClone, error) {
 	clones, err := c.getAvailableClones(dss)
 	if err != nil {
 		return nil, err
@@ -177,25 +180,18 @@ func (c *ClonePool) getPooledClone() (*zdap.PublicClone, error) {
 	}
 }
 
-func (c *ClonePool) addPooledClone() error {
-	dss, err := c.cloneContext.Z.Open()
-	defer dss.Close()
-
-	if err != nil {
-		return err
-	}
-
-	_, err = c.addCloneToPool(dss)
+func (c *ClonePool) addPooledClone(dss *zfs.Dataset) error {
+	_, err := c.addCloneToPool(dss)
 	return err
 }
 
-func (c *ClonePool) getOrAddPooledClone() (*zdap.PublicClone, error) {
-	clone, _ := c.getPooledClone()
+func (c *ClonePool) getOrAddPooledClone(dss *zfs.Dataset) (*zdap.PublicClone, error) {
+	clone, _ := c.getPooledClone(dss)
 
 	if clone == nil {
-		_ = c.addPooledClone()
+		_ = c.addPooledClone(dss)
 	}
 
-	return c.getPooledClone()
+	return c.getPooledClone(dss)
 
 }
