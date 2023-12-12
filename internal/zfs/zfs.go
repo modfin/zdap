@@ -35,6 +35,7 @@ const PropSnappedAt = "zdap:snapped_at"
 const PropClonePooled = "zdap:clone_pooled"
 const PropPort = "zdap:port"
 const PropExpires = "zdap:expires_at"
+const PropHealthy = "zdap:healthy"
 
 const TimestampFormat = "2006-01-02T15.04.05"
 
@@ -270,7 +271,7 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 		if err != nil {
 			return nil, err
 		}
-		healthy, err := d.GetUserProperty(PropClonePooled)
+		healthy, err := d.GetUserProperty(PropHealthy)
 		if err != nil {
 			return nil, err
 		}
