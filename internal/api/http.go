@@ -234,6 +234,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		}
 		clone, err := app.ClaimPooledClone(resource, timeout)
 		if err != nil {
+			fmt.Println("error return")
 			return c.JSON(http.StatusInternalServerError, err)
 		}
 		return c.JSON(http.StatusOK, clone)
