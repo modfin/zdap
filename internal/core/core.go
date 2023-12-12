@@ -316,17 +316,16 @@ func (c *Core) CloneResourceHandlePooling(dss *zfs.Dataset, owner string, resour
 	if r == nil {
 		return nil, fmt.Errorf("could not find resource %s", resourceName)
 	}
-
-	snapName := c.z.GetDatasetSnapNameAt(resourceName, at)
-
-	clone, err := createClone(dss, owner, snapName, r, c.docker, c.z, pooled)
-	if err != nil {
-		return nil, err
+	cc := cloning.CloneContext{
+		Resource:       r,
+		Docker:         c.docker,
+		Z:              c.z,
+		ConfigDir:      c.configDir,
+		NetworkAddress: c.networkAddress,
+		ApiPort:        c.apiPort,
 	}
-	clone.Server = c.networkAddress
-	clone.APIPort = c.apiPort
 
-	return clone, nil
+	return cc.CloneResourceHandlePooling(dss, owner, resourceName, at, pooled)
 }
 
 func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, connectionPooled bool) (*zdap.PublicClone, error) {
