@@ -27,53 +27,56 @@ func (c *ClonePool) Start() {
 	go func() {
 		for {
 			time.Sleep(time.Second)
-			dss, err := c.cloneContext.Z.Open()
-			if err != nil {
-				fmt.Printf("error trying to open z, error: %s\n", err.Error())
-				continue
-			}
-			//log.Info("Running clonepool for %s", c.resource.Name)
-
-			allClones, err := c.readPooled(dss)
-			if err != nil {
-				fmt.Printf("could not read pooled clones, error %s", err)
-				continue
-			}
-
-			clones := c.pruneExpired(dss, allClones)
-			available := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
-				return clone.ExpiresAt == nil && clone.Healthy
-			})
-			c.claimLock.Lock()
-			c.ClonesAvailable = len(available)
-			c.claimLock.Unlock()
-
-			nbrClones := len(clones)
-			clonesToAdd := c.resource.ClonePool.MinClones - len(available)
-			if nbrClones+clonesToAdd > c.resource.ClonePool.MaxClones {
-				clonesToAdd = c.resource.ClonePool.MaxClones - nbrClones
-			}
-			//log.Infof("min: %d", c.resource.ClonePool.MinClones)
-			//log.Infof("max: %d", c.resource.ClonePool.MaxClones)
-			//log.Infof("nbr: %d", nbrClones)
-			//log.Infof("adding: %d", clonesToAdd)
-			for i := 0; i < clonesToAdd; i++ {
-				_, err := c.addCloneToPool(dss)
-				if err != nil {
-					fmt.Printf("error adding clone to pool %s\n", err.Error())
-					continue
-				}
-				// may be off a tiny bit of time
-				c.claimLock.Lock()
-				c.ClonesAvailable++
-				c.claimLock.Unlock()
-			}
-
-			//log.Info("Finished running clone pool")
-			dss.Close()
+			c.action()
 		}
-
 	}()
+}
+
+func (c *ClonePool) action() {
+	dss, err := c.cloneContext.Z.Open()
+	defer dss.Close()
+	if err != nil {
+		fmt.Printf("error trying to open z, error: %s\n", err.Error())
+		return
+	}
+	//log.Info("Running clonepool for %s", c.resource.Name)
+
+	allClones, err := c.readPooled(dss)
+	if err != nil {
+		fmt.Printf("could not read pooled clones, error %s", err)
+		return
+	}
+
+	clones := c.pruneExpired(dss, allClones)
+	available := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
+		return clone.ExpiresAt == nil && clone.Healthy
+	})
+	c.claimLock.Lock()
+	c.ClonesAvailable = len(available)
+	c.claimLock.Unlock()
+
+	nbrClones := len(clones)
+	clonesToAdd := c.resource.ClonePool.MinClones - len(available)
+	if nbrClones+clonesToAdd > c.resource.ClonePool.MaxClones {
+		clonesToAdd = c.resource.ClonePool.MaxClones - nbrClones
+	}
+	//log.Infof("min: %d", c.resource.ClonePool.MinClones)
+	//log.Infof("max: %d", c.resource.ClonePool.MaxClones)
+	//log.Infof("nbr: %d", nbrClones)
+	//log.Infof("adding: %d", clonesToAdd)
+	for i := 0; i < clonesToAdd; i++ {
+		_, err := c.addCloneToPool(dss)
+		if err != nil {
+			fmt.Printf("error adding clone to pool %s\n", err.Error())
+			continue
+		}
+		// may be off a tiny bit of time
+		c.claimLock.Lock()
+		c.ClonesAvailable++
+		c.claimLock.Unlock()
+	}
+
+	//log.Info("Finished running clone pool")
 }
 
 func (c *ClonePool) getAvailableClones(dss *zfs.Dataset) ([]zdap.PublicClone, error) {
