@@ -67,7 +67,7 @@ func main() {
 				Name:  "serve",
 				Usage: "starts http daemon for clients to interact with",
 				Action: func(c *cli.Context) error {
-					return api.Start(config.Get(), app, docker, z)
+					return api.Start(config.Get(), app, z)
 				},
 			},
 			{
