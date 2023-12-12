@@ -82,7 +82,7 @@ func (c *ClonePool) getAvailableClones(dss *zfs.Dataset) ([]zdap.PublicClone, er
 	}
 
 	filtered := slicez.Filter(pooled, func(clone zdap.PublicClone) bool {
-		return clone.Resource == c.resource.Name && clone.ExpiresAt == nil && clone.Healthy
+		return clone.ExpiresAt == nil && clone.Healthy
 	})
 
 	return filtered, nil
@@ -162,13 +162,10 @@ func (c *ClonePool) getPooledClone(dss *zfs.Dataset) (*zdap.PublicClone, error) 
 	if err != nil {
 		return nil, err
 	}
-	available := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
-		return clone.ExpiresAt == nil && clone.Healthy
-	})
-	if len(available) == 0 {
+	if len(clones) == 0 {
 		return nil, fmt.Errorf("could not find any available clones")
 	} else {
-		return &available[0], nil
+		return &clones[0], nil
 	}
 }
 
@@ -182,6 +179,8 @@ func (c *ClonePool) getOrAddPooledClone(dss *zfs.Dataset) (*zdap.PublicClone, er
 
 	if clone == nil {
 		_ = c.addPooledClone(dss)
+		dss.Close()
+		dss, _ = c.cloneContext.Z.Open()
 	}
 
 	return c.getPooledClone(dss)
