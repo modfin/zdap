@@ -145,8 +145,9 @@ func CloneResource(c *cli.Context) error {
 }
 
 type ClaimResult struct {
-	Server string `json:"server"`
-	Port   int    `json:"port"`
+	Server  string `json:"server"`
+	Port    int    `json:"port"`
+	CloneId string `json:"clone_id"`
 }
 
 func ClaimResource(c *cli.Context) error {
@@ -155,8 +156,9 @@ func ClaimResource(c *cli.Context) error {
 		return err
 	}
 	b, err := json.Marshal(ClaimResult{
-		Server: clone.Server,
-		Port:   clone.Port,
+		Server:  clone.Server,
+		Port:    clone.Port,
+		CloneId: clone.Name,
 	})
 
 	fmt.Println(string(b))
