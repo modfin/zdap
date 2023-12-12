@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"fmt"
-	"github.com/docker/docker/client"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal/config"
@@ -16,7 +15,7 @@ import (
 )
 import "github.com/labstack/echo/v4"
 
-func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS) error {
+func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	e := echo.New()
 
 	e.Use(middleware.Logger())
@@ -225,7 +224,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 	e.POST("/resources/:resource/claim", func(c echo.Context) error {
 		resource := c.Param("resource")
 		timeoutStr := c.QueryParam("timeoutSeconds")
-		timeout := time.Minute
+		timeout := 10 * time.Second
 		if timeoutStr != "" {
 			t, err := strconv.ParseInt(timeoutStr, 10, 64)
 			if err == nil {
