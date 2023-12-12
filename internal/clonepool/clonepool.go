@@ -148,5 +148,8 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 		return zdap.PublicClone{}, err
 	}
 	c.ClonesAvailable = len(available) - 1
+
+	claim.APIPort = c.cloneContext.ApiPort
+	claim.Server = c.cloneContext.NetworkAddress
 	return *claim, nil
 }

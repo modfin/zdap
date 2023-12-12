@@ -33,6 +33,7 @@ const PropOwner = "zdap:owner"
 const PropResource = "zdap:resource"
 const PropSnappedAt = "zdap:snapped_at"
 const PropClonePooled = "zdap:clone_pooled"
+const PropPort = "zdap:port"
 const PropExpires = "zdap:expires_at"
 
 const TimestampFormat = "2006-01-02T15.04.05"
@@ -270,6 +271,13 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 			return nil, err
 		}
 
+		// TODO for backwards compatibility, should be removed
+		port := 0
+		portString, err := d.GetUserProperty(PropPort)
+		if err == nil {
+			port, _ = strconv.Atoi(portString.Value)
+		}
+
 		expires, err := d.GetUserProperty(PropExpires)
 		if err != nil {
 			return nil, err
@@ -292,6 +300,7 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 			ClonePooled: clonePooled.Value == "true",
 			Dataset:     d,
 			ExpiresAt:   expiresAt,
+			Port:        port,
 		})
 	}
 
@@ -381,7 +390,7 @@ func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error
 	return err
 }
 
-func (z *ZFS) CloneDataset(owner, snapName string, clonePooled bool) (string, string, error) {
+func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool) (string, string, error) {
 
 	parts := strings.Split(snapName, "@")
 	if len(parts) != 2 {
@@ -435,6 +444,13 @@ func (z *ZFS) CloneDataset(owner, snapName string, clonePooled bool) (string, st
 		return "", "", err
 	}
 	err = clone.SetUserProperty(PropClonePooled, strconv.FormatBool(clonePooled))
+	if err != nil {
+		return "", "", err
+	}
+	err = clone.SetUserProperty(PropPort, strconv.Itoa(port))
+	if err != nil {
+		return "", "", err
+	}
 
 	err = clone.Mount("", 0)
 	if err != nil {

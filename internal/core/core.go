@@ -335,7 +335,8 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 
 	fmt.Println("Creating clone from", candidate)
 
-	cloneName, path, err := z.CloneDataset(owner, candidate, connectionPooled)
+	port, err := utils.GetFreePort()
+	cloneName, path, err := z.CloneDataset(owner, candidate, port, connectionPooled)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +374,6 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 
 	fmt.Println(" - db container name", cloneName)
 
-	port, err := utils.GetFreePort()
 	if err != nil {
 		return nil, err
 	}
