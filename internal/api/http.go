@@ -223,6 +223,8 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.POST("/resources/:resource/claim", func(c echo.Context) error {
+		fmt.Println("Reached endpoint ******************'")
+
 		resource := c.Param("resource")
 		timeoutStr := c.QueryParam("timeoutSeconds")
 		timeout := internal.DefaultClaimMaxTimeoutSeconds * time.Second
