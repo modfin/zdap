@@ -33,6 +33,7 @@ const PropOwner = "zdap:owner"
 const PropResource = "zdap:resource"
 const PropSnappedAt = "zdap:snapped_at"
 const PropClonePooled = "zdap:clone_pooled"
+const PropExpires = "zdap:expires_at"
 
 const TimestampFormat = "2006-01-02T15.04.05"
 
@@ -269,8 +270,18 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 			return nil, err
 		}
 
+		expires, err := d.GetUserProperty(PropExpires)
+		if err != nil {
+			return nil, err
+		}
+
 		createdAt, _ := time.Parse(TimestampFormat, created.Value)
 		snappedAt, _ := time.Parse(TimestampFormat, snapped.Value)
+		expAt, err := time.Parse(TimestampFormat, expires.Value)
+		var expiresAt *time.Time
+		if err == nil {
+			expiresAt = &expAt
+		}
 
 		clones = append(clones, zdap.PublicClone{
 			Name:        c,
@@ -279,6 +290,8 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 			CreatedAt:   createdAt,
 			SnappedAt:   snappedAt,
 			ClonePooled: clonePooled.Value == "true",
+			Dataset:     &Dataset{d},
+			ExpiresAt:   expiresAt,
 		})
 	}
 

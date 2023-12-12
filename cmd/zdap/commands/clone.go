@@ -36,7 +36,7 @@ func parsArgs(args []string) (servers []string, resource string, snap time.Time,
 	return
 }
 
-func findServerCandidate(resource string, user string, servers []string) (string, error) {
+func findServerCandidate(resource string, user string, servers []string, favorPooled bool) (string, error) {
 
 	var candidates []zdap.ServerStatus
 	for _, s := range servers {
@@ -74,6 +74,9 @@ func findServerCandidate(resource string, user string, servers []string) (string
 	sort.Slice(candidates, func(i, j int) bool {
 		a, b := candidates[i], candidates[j]
 
+		if favorPooled {
+			return a.ResourceDetails[resource].PooledClonesAvailable > b.ResourceDetails[resource].PooledClonesAvailable
+		}
 		return score(a) > score(b)
 	})
 
@@ -131,7 +134,7 @@ func CloneResourceCompletion(c *cli.Context) {
 }
 
 func CloneResource(c *cli.Context) error {
-	clone, err := cloneResource(c.Args().Slice())
+	clone, err := cloneResource(c.Args().Slice(), false)
 	if err != nil {
 		return err
 	}
@@ -139,7 +142,16 @@ func CloneResource(c *cli.Context) error {
 	fmt.Printf("zdap attach @%s %s %s\n", clone.Server, clone.Resource, clone.CreatedAt.Format(utils.TimestampFormat))
 	return nil
 }
-func cloneResource(args []string) (*zdap.PublicClone, error) {
+func ClaimResource(c *cli.Context) error {
+	clone, err := cloneResource(c.Args().Slice(), true)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Attach to project by running, run:")
+	fmt.Printf("zdap attach @%s %s %s\n", clone.Server, clone.Resource, clone.CreatedAt.Format(utils.TimestampFormat))
+	return nil
+}
+func cloneResource(args []string, claimPooled bool) (*zdap.PublicClone, error) {
 	var err error
 
 	cfg, err := getConfig()
@@ -161,13 +173,13 @@ func cloneResource(args []string) (*zdap.PublicClone, error) {
 		server = servers[0]
 	}
 	if len(servers) == 0 {
-		server, err = findServerCandidate(resource, cfg.User, cfg.Servers)
+		server, err = findServerCandidate(resource, cfg.User, cfg.Servers, claimPooled)
 		if err != nil {
 			return nil, fmt.Errorf("could not find a suitable server, %w", err)
 		}
 	}
 	client := zdap.NewClient(cfg.User, server)
-	clone, err := client.CloneSnap(resource, snap)
+	clone, err := client.CloneSnap(resource, snap, claimPooled)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +336,7 @@ func AttachClone(c *cli.Context) error {
 
 	if c.Bool("new") {
 		fmt.Print("Cloning ", resource, "...")
-		clone, err = cloneResource(c.Args().Slice())
+		clone, err = cloneResource(c.Args().Slice(), c.Bool("claim"))
 		if err != nil {
 			return err
 		}

@@ -41,6 +41,8 @@ type Core struct {
 	cron      *cron.Cron
 	resources []internal.Resource
 	ttlCache  *cache.Cache
+
+	clonePools map[string]*clonepool.ClonePool
 }
 
 func NewCore(configDir string, networkAddress string, apiPort int, docker *client.Client, z *zfs.ZFS) (*Core, error) {
@@ -58,6 +60,7 @@ func NewCore(configDir string, networkAddress string, apiPort int, docker *clien
 }
 func (c *Core) Start() error {
 	var ids []cron.EntryID
+	c.clonePools = make(map[string]*clonepool.ClonePool)
 	for _, r := range c.resources {
 		r := r
 
@@ -74,7 +77,6 @@ func (c *Core) Start() error {
 			return fmt.Errorf("could not create cron for '%s', %w", r.Cron, err)
 		}
 
-		clonePool := clonepool.NewClonePool(r)
 		cloneContext := cloning.CloneContext{
 			Resource:       &r,
 			Docker:         c.docker,
@@ -83,7 +85,9 @@ func (c *Core) Start() error {
 			NetworkAddress: c.networkAddress,
 			ApiPort:        c.apiPort,
 		}
-		clonePool.Start(c.z, &cloneContext)
+		clonePool := clonepool.NewClonePool(r, &cloneContext)
+		clonePool.Start()
+		c.clonePools[r.Name] = &clonePool
 	}
 	c.cron.Start()
 	for i, r := range c.resources {
@@ -154,6 +158,9 @@ func loadResources(dir string) ([]internal.Resource, error) {
 			return nil, err
 		}
 		//TODO ensure uniq resource names for r.Name
+		if r.ClonePool.ClaimMaxTimeoutSeconds == 0 {
+			r.ClonePool.ClaimMaxTimeoutSeconds = internal.DefaultClaimMaxTimeoutSeconds
+		}
 		resources = append(resources, r)
 	}
 
@@ -490,9 +497,21 @@ func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
 	s.CachedMem = mem.Cached
 	s.TotalMem = mem.Total
 
+	s.ResourceDetails = make(map[string]zdap.ServerResourceDetails)
 	for _, r := range c.resources {
 		s.Resources = append(s.Resources, r.Name)
+		s.ResourceDetails[r.Name] = zdap.ServerResourceDetails{
+			Name:                  r.Name,
+			PooledClonesAvailable: c.clonePools[r.Name].ClonesAvailable,
+		}
 	}
 
 	return s, nil
+}
+
+func (c *Core) ClaimPooledClone(resource string, timeout time.Duration) (zdap.PublicClone, error) {
+	if pool, exists := c.clonePools[resource]; exists {
+		return pool.Claim(timeout)
+	}
+	return zdap.PublicClone{}, fmt.Errorf("no clone pool exists for resource '%s'", resource)
 }

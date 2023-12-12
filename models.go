@@ -2,6 +2,7 @@ package zdap
 
 import (
 	"fmt"
+	"github.com/modfin/zdap/internal/zfs"
 	"time"
 )
 
@@ -27,6 +28,7 @@ type PublicClone struct {
 	Port        int        `json:"port"`
 	ClonePooled bool       `json:"clone_pooled"`
 	ExpiresAt   *time.Time `json:"expires_at"`
+	Dataset     *zfs.Dataset
 }
 
 func (c *PublicClone) YAML(listenPort int) string {
@@ -42,18 +44,24 @@ func (c *PublicClone) YAML(listenPort int) string {
 }
 
 type ServerStatus struct {
-	Address   string   `json:"address"`
-	Resources []string `json:"resources"`
-	Snaps     int      `json:"snaps"`
-	Clones    int      `json:"clones"`
-	FreeDisk  uint64   `json:"free_disk"`
-	UsedDisk  uint64   `json:"used_disk"`
-	TotalDisk uint64   `json:"total_disk"`
-	Load1     float64  `json:"load_1"`
-	Load5     float64  `json:"load_5"`
-	Load15    float64  `json:"load_15"`
-	FreeMem   uint64   `json:"free_mem"`
-	CachedMem uint64   `json:"cached_mem"`
-	TotalMem  uint64   `json:"total_mem"`
-	UsedMem   uint64   `json:"used_mem"`
+	Address         string                           `json:"address"`
+	Resources       []string                         `json:"resources"`
+	ResourceDetails map[string]ServerResourceDetails `json:"resource_details"`
+	Snaps           int                              `json:"snaps"`
+	Clones          int                              `json:"clones"`
+	FreeDisk        uint64                           `json:"free_disk"`
+	UsedDisk        uint64                           `json:"used_disk"`
+	TotalDisk       uint64                           `json:"total_disk"`
+	Load1           float64                          `json:"load_1"`
+	Load5           float64                          `json:"load_5"`
+	Load15          float64                          `json:"load_15"`
+	FreeMem         uint64                           `json:"free_mem"`
+	CachedMem       uint64                           `json:"cached_mem"`
+	TotalMem        uint64                           `json:"total_mem"`
+	UsedMem         uint64                           `json:"used_mem"`
+}
+
+type ServerResourceDetails struct {
+	Name                  string `json:"name"`
+	PooledClonesAvailable int    `json:"pooled_clones_available"`
 }

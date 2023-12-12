@@ -11,6 +11,7 @@ import (
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 	"net/http"
+	"strconv"
 	"time"
 )
 import "github.com/labstack/echo/v4"
@@ -40,7 +41,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		}
 		defer dss.Close()
 
-		res, err := getStatus(dss, c.Get("owner").(string), app)
+		res, err := getStatus(dss, app)
 		if err != nil {
 			return fmt.Errorf("could not retrive status, %w", err)
 		}
@@ -184,6 +185,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		}
 		return c.JSON(http.StatusOK, clone)
 	})
+
 	e.POST("/resources/:resource/snaps/:createdAt", func(c echo.Context) error {
 		resource := c.Param("resource")
 		at, err := time.Parse(utils.TimestampFormat, c.Param("createdAt"))
@@ -218,6 +220,23 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 			return err
 		}
 		return c.JSON(http.StatusOK, res)
+	})
+
+	e.POST("/resources/:resource/claim", func(c echo.Context) error {
+		resource := c.Param("resource")
+		timeoutStr := c.QueryParam("timeoutSeconds")
+		timeout := time.Minute
+		if timeoutStr != "" {
+			t, err := strconv.ParseInt(timeoutStr, 10, 64)
+			if err == nil {
+				timeout = time.Duration(t) * time.Second
+			}
+		}
+		clone, err := app.ClaimPooledClone(resource, timeout)
+		if err != nil {
+			return err
+		}
+		return c.JSON(http.StatusOK, clone)
 	})
 
 	fmt.Println("== Loaded Resources ==")

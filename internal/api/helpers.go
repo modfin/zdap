@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func getStatus(dss *zfs.Dataset, owner string, app *core.Core) (zdap.ServerStatus, error) {
+func getStatus(dss *zfs.Dataset, app *core.Core) (zdap.ServerStatus, error) {
 	return app.ServerStatus(dss)
 }
 

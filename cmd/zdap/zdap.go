@@ -10,9 +10,7 @@ import (
 func main() {
 
 	cliapp := &cli.App{
-		Flags: []cli.Flag{
-
-		},
+		Flags: []cli.Flag{},
 		Commands: []*cli.Command{
 			{
 				Name:   "auto-complete",
@@ -72,6 +70,12 @@ func main() {
 						DefaultText: "true",
 						Usage:       "if set, zdap will create a new clone of resource before attaching it",
 						Value:       true,
+					},
+					&cli.BoolFlag{
+						Name:        "claim",
+						DefaultText: "false",
+						Usage:       "if set, zdap will try to claim a pooled clone if available",
+						Value:       false,
 					},
 					&cli.BoolFlag{
 						Name:  "force",
@@ -138,6 +142,12 @@ func main() {
 				Name:         "clone",
 				Usage:        "clone a snapshot",
 				Action:       commands.CloneResource,
+				BashComplete: commands.CloneResourceCompletion,
+			},
+			{
+				Name:         "claim",
+				Usage:        "claim a pooled clone",
+				Action:       commands.ClaimResource,
 				BashComplete: commands.CloneResourceCompletion,
 			},
 			{
