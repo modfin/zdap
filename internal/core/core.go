@@ -534,9 +534,9 @@ func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
 	return s, nil
 }
 
-func (c *Core) ClaimPooledClone(dss *zfs.Dataset, resource string, timeout time.Duration) (zdap.PublicClone, error) {
+func (c *Core) ClaimPooledClone(resource string, timeout time.Duration) (zdap.PublicClone, error) {
 	if pool, exists := c.clonePools[resource]; exists {
-		return pool.Claim(dss, timeout)
+		return pool.Claim(timeout)
 	}
 	return zdap.PublicClone{}, fmt.Errorf("no clone pool exists for resource '%s'", resource)
 }

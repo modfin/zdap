@@ -131,15 +131,33 @@ func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []
 	})
 }
 
-func (c *ClonePool) Claim(dss *zfs.Dataset, timeout time.Duration) (zdap.PublicClone, error) {
+func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	c.claimLock.Lock()
 	defer c.claimLock.Unlock()
 
-	claim, err := c.getOrAddPooledClone(dss)
+	dss, err := c.cloneContext.Z.Open()
+	if err != nil {
+		return zdap.PublicClone{}, err
+	}
+	claim, _ := c.getPooledClone(dss)
+	if claim == nil {
+		_ = c.addPooledClone(dss)
+		dss.Close()
+
+		// reset dataset and query new clones
+		dss, err = c.cloneContext.Z.Open()
+		if err != nil {
+			return zdap.PublicClone{}, err
+		}
+
+		claim, _ = c.getPooledClone(dss)
+	}
+
 	if claim == nil {
 		return zdap.PublicClone{}, fmt.Errorf("could not find available clone %w", err)
 	}
 	defer claim.Dataset.Close()
+
 	maxTimeout := time.Duration(c.resource.ClonePool.ClaimMaxTimeoutSeconds) * time.Second
 	if timeout > maxTimeout {
 		timeout = maxTimeout
@@ -172,17 +190,4 @@ func (c *ClonePool) getPooledClone(dss *zfs.Dataset) (*zdap.PublicClone, error) 
 func (c *ClonePool) addPooledClone(dss *zfs.Dataset) error {
 	_, err := c.addCloneToPool(dss)
 	return err
-}
-
-func (c *ClonePool) getOrAddPooledClone(dss *zfs.Dataset) (*zdap.PublicClone, error) {
-	clone, _ := c.getPooledClone(dss)
-
-	if clone == nil {
-		_ = c.addPooledClone(dss)
-		dss.Close()
-		dss, _ = c.cloneContext.Z.Open()
-	}
-
-	return c.getPooledClone(dss)
-
 }
