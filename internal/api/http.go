@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/config"
 	"github.com/modfin/zdap/internal/core"
 	"github.com/modfin/zdap/internal/utils"
@@ -224,7 +225,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	e.POST("/resources/:resource/claim", func(c echo.Context) error {
 		resource := c.Param("resource")
 		timeoutStr := c.QueryParam("timeoutSeconds")
-		timeout := 10 * time.Second
+		timeout := internal.DefaultClaimMaxTimeoutSeconds * time.Second
 		if timeoutStr != "" {
 			t, err := strconv.ParseInt(timeoutStr, 10, 64)
 			if err == nil {
