@@ -3,13 +3,15 @@ package zdap
 import (
 	"fmt"
 	zfs "github.com/bicomsystems/go-libzfs"
+	"github.com/modfin/zdap/internal"
 	"time"
 )
 
 type PublicResource struct {
-	Name  string       `json:"name"`
-	Alias string       `json:"alias"`
-	Snaps []PublicSnap `json:"snaps"`
+	Name      string                   `json:"name"`
+	Alias     string                   `json:"alias"`
+	Snaps     []PublicSnap             `json:"snaps"`
+	ClonePool internal.ClonePoolConfig `json:"pooled_clones"`
 }
 type PublicSnap struct {
 	Name      string        `json:"name"`

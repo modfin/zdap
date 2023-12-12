@@ -21,8 +21,8 @@ type Docker struct {
 const DefaultClaimMaxTimeoutSeconds = 300
 
 type ClonePoolConfig struct {
-	ResetOnNewSnap         bool `yaml:"reset_on_new_snap"`
-	MinClones              int  `yaml:"min_clones"`
-	MaxClones              int  `yaml:"max_clones"`
-	ClaimMaxTimeoutSeconds int  `yaml:"claim_max_timeout_seconds"`
+	ResetOnNewSnap         bool `yaml:"reset_on_new_snap" json:"reset_on_new_snap"`
+	MinClones              int  `yaml:"min_clones" json:"min_clones"`
+	MaxClones              int  `yaml:"max_clones" json:"max_clones"`
+	ClaimMaxTimeoutSeconds int  `yaml:"claim_max_timeout_seconds" json:"claim_max_timeout_seconds"`
 }

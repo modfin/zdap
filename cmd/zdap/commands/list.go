@@ -80,7 +80,16 @@ func ListResources(c *cli.Context) error {
 			if i == len(resources)-1 {
 				r1 = "└"
 			}
-			fmt.Printf("%s %s\n", r1, resource.Name)
+			fmt.Printf("%s %s", r1, resource.Name)
+			if resource.ClonePool.MinClones > 0 {
+				fmt.Printf(
+					"(pool: min_clones=%d, max_clones=%d, max_lease_time=%ds)",
+					resource.ClonePool.MinClones,
+					resource.ClonePool.MaxClones,
+					resource.ClonePool.ClaimMaxTimeoutSeconds,
+				)
+			}
+			fmt.Printf("\n")
 		}
 	}
 	return nil
