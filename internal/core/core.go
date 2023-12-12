@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/modfin/henry/slicez"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/bases"
@@ -283,10 +284,20 @@ func (c *Core) CreateBaseAndSnap(resourceName string, useExistingBase bool) erro
 		if err != nil {
 			return err
 		}
-		fmt.Println(bs)
-		//t := time.Now()
-		//return c.z.SnapDataset(name, r.Name, t)
-		return nil
+		resourceRx, err := regexp.Compile("^zdap-" + resourceName + "-base.*")
+		if err != nil {
+			return err
+		}
+		resourceBases := slicez.Filter(bs, func(b string) bool {
+			return resourceRx.MatchString(b)
+		})
+		if len(resourceBases) == 0 {
+			return fmt.Errorf("no bases for resource '%s' found", resourceName)
+		}
+		latestBase := slicez.Reverse(slicez.Sort(resourceBases))[0]
+		t := time.Now()
+		fmt.Printf("snapping %s at %s\n", latestBase, t.Format(zfs.TimestampFormat))
+		return c.z.SnapDataset(latestBase, r.Name, t)
 	}
 	return bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z)
 }
