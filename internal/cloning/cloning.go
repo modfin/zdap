@@ -222,7 +222,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	matchingClones := slicez.Filter(clones, func(c zdap.PublicClone) bool {
 		return c.Name == cloneName
 	})
-	if matchingClones != nil {
+	if matchingClones != nil && len(matchingClones) > 0 {
 		fmt.Printf("Setting healthy for %s\n", cloneName)
 		m := matchingClones[0]
 		m.Dataset.SetUserProperty("healthy", "true")
