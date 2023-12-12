@@ -76,6 +76,19 @@ func (c *ClonePool) Start() {
 	}()
 }
 
+func (c *ClonePool) getAvailableClones(dss *zfs.Dataset) ([]zdap.PublicClone, error) {
+	pooled, err := c.readPooled(dss)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := slicez.Filter(pooled, func(clone zdap.PublicClone) bool {
+		return clone.Resource == c.resource.Name && clone.ExpiresAt == nil && clone.Healthy
+	})
+
+	return filtered, nil
+}
+
 func (c *ClonePool) addCloneToPool(dss *zfs.Dataset) (*zdap.PublicClone, error) {
 	snaps, err := c.cloneContext.GetResourceSnaps(dss, c.resource.Name)
 	if err != nil || snaps == nil {
@@ -123,21 +136,10 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	c.claimLock.Lock()
 	defer c.claimLock.Unlock()
 
-	dss, err := c.cloneContext.Z.Open()
-	defer dss.Close()
+	claim, _ := c.getOrAddPooledClone()
 
-	clones, err := c.readPooled(dss)
-	if err != nil {
-		return zdap.PublicClone{}, err
-	}
-	available := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
-		return clone.ExpiresAt == nil
-	})
-	var claim *zdap.PublicClone
-	if len(available) == 0 {
-		claim, err = c.addCloneToPool(dss)
-	} else {
-		claim = &available[0]
+	if claim == nil {
+		return zdap.PublicClone{}, fmt.Errorf("could not find available clone")
 	}
 	defer claim.Dataset.Close()
 	maxTimeout := time.Duration(c.resource.ClonePool.ClaimMaxTimeoutSeconds) * time.Second
@@ -145,13 +147,54 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 		timeout = maxTimeout
 	}
 	expires := time.Now().Add(timeout)
-	err = claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
+	err := claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
 	if err != nil {
 		return zdap.PublicClone{}, err
 	}
-	c.ClonesAvailable = len(available) - 1
+	c.ClonesAvailable--
 
 	claim.APIPort = c.cloneContext.ApiPort
 	claim.Server = c.cloneContext.NetworkAddress
 	return *claim, nil
+}
+
+func (c *ClonePool) getPooledClone() (*zdap.PublicClone, error) {
+	dss, err := c.cloneContext.Z.Open()
+	defer dss.Close()
+
+	clones, err := c.getAvailableClones(dss)
+	if err != nil {
+		return nil, err
+	}
+	available := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
+		return clone.ExpiresAt == nil
+	})
+	if len(available) == 0 {
+		return nil, err
+	} else {
+		return &available[0], nil
+	}
+}
+
+func (c *ClonePool) addPooledClone() error {
+	dss, err := c.cloneContext.Z.Open()
+	defer dss.Close()
+
+	if err != nil {
+		return err
+	}
+
+	_, err = c.addCloneToPool(dss)
+	return err
+}
+
+func (c *ClonePool) getOrAddPooledClone() (*zdap.PublicClone, error) {
+	clone, _ := c.getPooledClone()
+
+	if clone == nil {
+		_ = c.addPooledClone()
+	}
+
+	return c.getPooledClone()
+
 }
