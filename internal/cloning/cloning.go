@@ -101,7 +101,6 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 
 	var candidate string
 	for _, s := range snaps {
-		fmt.Printf("comparing request = %s to snap name = %s\n", snap, s.Name)
 		if s.Name == snap {
 			candidate = s.Name
 		}
