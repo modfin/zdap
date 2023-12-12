@@ -65,17 +65,18 @@ func (c *Core) Start() error {
 	for _, r := range c.resources {
 		r := r
 
-		id, err := c.cron.AddFunc(r.Cron, func() {
-			fmt.Println("[CRON] Starting cron job to create", r.Name, "base resource")
-			err := bases.CreateBaseAndSnap(c.configDir, &r, c.docker, c.z)
+		if r.Cron != "" {
+			id, err := c.cron.AddFunc(r.Cron, func() {
+				fmt.Println("[CRON] Starting cron job to create", r.Name, "base resource")
+				err := bases.CreateBaseAndSnap(c.configDir, &r, c.docker, c.z)
+				if err != nil {
+					fmt.Println("[CRON] Error: could not run cronjob to create base,", err)
+				}
+			})
 			if err != nil {
-				fmt.Println("[CRON] Error: could not run cronjob to create base,", err)
+				return fmt.Errorf("could not create cron for '%s', %w", r.Cron, err)
 			}
-		})
-		ids = append(ids, id)
-
-		if err != nil {
-			return fmt.Errorf("could not create cron for '%s', %w", r.Cron, err)
+			ids = append(ids, id)
 		}
 
 		cloneContext := cloning.CloneContext{
