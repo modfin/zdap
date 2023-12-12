@@ -147,6 +147,7 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 		timeout = maxTimeout
 	}
 	expires := time.Now().Add(timeout)
+	fmt.Println(claim.Dataset)
 	err := claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
 	if err != nil {
 		return zdap.PublicClone{}, err
@@ -167,10 +168,10 @@ func (c *ClonePool) getPooledClone() (*zdap.PublicClone, error) {
 		return nil, err
 	}
 	available := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
-		return clone.ExpiresAt == nil
+		return clone.ExpiresAt == nil && clone.Healthy
 	})
 	if len(available) == 0 {
-		return nil, err
+		return nil, fmt.Errorf("could not find any available clones")
 	} else {
 		return &available[0], nil
 	}
