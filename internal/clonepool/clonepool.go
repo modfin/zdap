@@ -108,7 +108,9 @@ func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []
 
 	for _, e := range expired {
 		err := c.cloneContext.DestroyClone(dss, e.Name)
-		fmt.Printf("could not destroy clone %s, error: %s", e.Name, err.Error())
+		if err != nil {
+			fmt.Printf("could not destroy clone %s, error: %s", e.Name, err.Error())
+		}
 	}
 
 	return slicez.Filter(clones, func(clone zdap.PublicClone) bool {
