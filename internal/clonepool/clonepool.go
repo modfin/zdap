@@ -60,7 +60,7 @@ func (c *ClonePool) Start() {
 			for i := 0; i < clonesToAdd; i++ {
 				_, err := c.addCloneToPool(dss)
 				if err != nil {
-					fmt.Printf("error adding clone to pool %s", err.Error())
+					fmt.Printf("error adding clone to pool %s\n", err.Error())
 					continue
 				}
 				// may be off a tiny bit of time
