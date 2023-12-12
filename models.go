@@ -2,7 +2,7 @@ package zdap
 
 import (
 	"fmt"
-	"github.com/modfin/zdap/internal/zfs"
+	zfs "github.com/bicomsystems/go-libzfs"
 	"time"
 )
 

@@ -290,7 +290,7 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 			CreatedAt:   createdAt,
 			SnappedAt:   snappedAt,
 			ClonePooled: clonePooled.Value == "true",
-			Dataset:     &Dataset{d},
+			Dataset:     d,
 			ExpiresAt:   expiresAt,
 		})
 	}
