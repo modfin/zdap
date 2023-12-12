@@ -135,10 +135,9 @@ func (c *ClonePool) Claim(dss *zfs.Dataset, timeout time.Duration) (zdap.PublicC
 	c.claimLock.Lock()
 	defer c.claimLock.Unlock()
 
-	claim, _ := c.getOrAddPooledClone(dss)
-
+	claim, err := c.getOrAddPooledClone(dss)
 	if claim == nil {
-		return zdap.PublicClone{}, fmt.Errorf("could not find available clone")
+		return zdap.PublicClone{}, fmt.Errorf("could not find available clone %w", err)
 	}
 	defer claim.Dataset.Close()
 	maxTimeout := time.Duration(c.resource.ClonePool.ClaimMaxTimeoutSeconds) * time.Second
@@ -147,7 +146,7 @@ func (c *ClonePool) Claim(dss *zfs.Dataset, timeout time.Duration) (zdap.PublicC
 	}
 	expires := time.Now().Add(timeout)
 	fmt.Println(claim.Dataset)
-	err := claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
+	err = claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
 	if err != nil {
 		return zdap.PublicClone{}, err
 	}
