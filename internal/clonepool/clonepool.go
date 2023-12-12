@@ -131,15 +131,9 @@ func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []
 	})
 }
 
-func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
+func (c *ClonePool) Claim(dss *zfs.Dataset, timeout time.Duration) (zdap.PublicClone, error) {
 	c.claimLock.Lock()
 	defer c.claimLock.Unlock()
-
-	dss, err := c.cloneContext.Z.Open()
-	if err != nil {
-		return zdap.PublicClone{}, err
-	}
-	defer dss.Close()
 
 	claim, _ := c.getOrAddPooledClone(dss)
 
@@ -153,7 +147,7 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	}
 	expires := time.Now().Add(timeout)
 	fmt.Println(claim.Dataset)
-	err = claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
+	err := claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
 	if err != nil {
 		return zdap.PublicClone{}, err
 	}

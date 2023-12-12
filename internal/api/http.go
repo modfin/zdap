@@ -234,7 +234,14 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 				timeout = time.Duration(t) * time.Second
 			}
 		}
-		clone, err := app.ClaimPooledClone(resource, timeout)
+
+		dss, err := z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+
+		clone, err := app.ClaimPooledClone(dss, resource, timeout)
 		if err != nil {
 			fmt.Println("error return")
 			fmt.Println(err.Error())
