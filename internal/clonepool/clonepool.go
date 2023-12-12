@@ -29,6 +29,7 @@ func (c *ClonePool) Start() {
 			time.Sleep(time.Second)
 			dss, err := c.cloneContext.Z.Open()
 			if err != nil {
+				fmt.Printf("error trying to open z, error: %s\n", err.Error())
 				continue
 			}
 			//log.Info("Running clonepool for %s", c.resource.Name)
