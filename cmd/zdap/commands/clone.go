@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/c2h5oh/datasize"
@@ -142,11 +143,23 @@ func CloneResource(c *cli.Context) error {
 	fmt.Printf("zdap attach @%s %s %s\n", clone.Server, clone.Resource, clone.CreatedAt.Format(utils.TimestampFormat))
 	return nil
 }
+
+type ClaimResult struct {
+	Server string `json:"server"`
+	Port   int    `json:"port"`
+}
+
 func ClaimResource(c *cli.Context) error {
 	clone, err := cloneResource(c.Args().Slice(), true)
 	if err != nil {
 		return err
 	}
+	b, err := json.Marshal(ClaimResult{
+		Server: clone.Server,
+		Port:   clone.Port,
+	})
+
+	fmt.Println(string(b))
 	fmt.Println("Attach to project by running, run:")
 	fmt.Printf("zdap attach @%s %s %s\n", clone.Server, clone.Resource, clone.CreatedAt.Format(utils.TimestampFormat))
 	return nil

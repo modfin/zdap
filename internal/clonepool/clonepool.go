@@ -77,7 +77,7 @@ func (c *ClonePool) Start() {
 
 func (c *ClonePool) addCloneToPool(dss *zfs.Dataset) (*zdap.PublicClone, error) {
 	snaps, err := c.cloneContext.GetResourceSnaps(dss, c.resource.Name)
-	if err != nil {
+	if err != nil || snaps == nil {
 		return nil, err
 	}
 
