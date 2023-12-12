@@ -16,7 +16,6 @@ import (
 type ClonePool struct {
 	resource        internal.Resource
 	cloneContext    *cloning.CloneContext
-	dss             *zfs.Dataset
 	ClonesAvailable int
 	claimLock       sync.Mutex
 }
@@ -26,25 +25,22 @@ func NewClonePool(resource internal.Resource, cloneContext *cloning.CloneContext
 }
 
 func (c *ClonePool) Start() {
-	if c.dss != nil {
-		c.dss.Close()
-	}
-	var err error
-	c.dss, err = c.cloneContext.Z.Open()
 	go func() {
 		for {
-			log.Info("Running clonepool for %s", c.resource.Name)
+			time.Sleep(time.Second)
+			dss, err := c.cloneContext.Z.Open()
 			if err != nil {
-				panic("could not open dataset")
+				continue
 			}
+			log.Info("Running clonepool for %s", c.resource.Name)
 
-			allClones, err := c.readPooled()
+			allClones, err := c.readPooled(dss)
 			if err != nil {
 				fmt.Printf("could not read pooled clones, error %s", err)
 				continue
 			}
 
-			clones := c.pruneExpired(allClones)
+			clones := c.pruneExpired(dss, allClones)
 			available := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
 				return clone.ExpiresAt == nil
 			})
@@ -62,7 +58,7 @@ func (c *ClonePool) Start() {
 			log.Infof("nbr: %d", nbrClones)
 			log.Infof("adding: %d", clonesToAdd)
 			for i := 0; i < clonesToAdd; i++ {
-				_, err := c.addCloneToPool()
+				_, err := c.addCloneToPool(dss)
 				if err != nil {
 					continue
 				}
@@ -73,15 +69,14 @@ func (c *ClonePool) Start() {
 			}
 
 			log.Info("Finished running clone pool")
-
-			time.Sleep(time.Second)
+			dss.Close()
 		}
 
 	}()
 }
 
-func (c *ClonePool) addCloneToPool() (*zdap.PublicClone, error) {
-	snaps, err := c.cloneContext.GetResourceSnaps(c.dss, c.resource.Name)
+func (c *ClonePool) addCloneToPool(dss *zfs.Dataset) (*zdap.PublicClone, error) {
+	snaps, err := c.cloneContext.GetResourceSnaps(dss, c.resource.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -92,11 +87,11 @@ func (c *ClonePool) addCloneToPool() (*zdap.PublicClone, error) {
 	latestDate := snaps[0].CreatedAt
 
 	log.Infof("Adding clone to %s pool", c.resource.Name)
-	return c.cloneContext.CloneResourcePooled(c.dss, "zdapd", c.resource.Name, latestDate)
+	return c.cloneContext.CloneResourcePooled(dss, "zdapd", c.resource.Name, latestDate)
 }
 
-func (c *ClonePool) readPooled() ([]zdap.PublicClone, error) {
-	clones, err := c.cloneContext.Z.ListClones(c.dss)
+func (c *ClonePool) readPooled(dss *zfs.Dataset) ([]zdap.PublicClone, error) {
+	clones, err := c.cloneContext.Z.ListClones(dss)
 	if err != nil {
 		return nil, fmt.Errorf("could not list clones")
 	}
@@ -105,14 +100,14 @@ func (c *ClonePool) readPooled() ([]zdap.PublicClone, error) {
 	}), nil
 }
 
-func (c *ClonePool) pruneExpired(clones []zdap.PublicClone) []zdap.PublicClone {
+func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []zdap.PublicClone {
 	t := time.Now()
 	expired := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
 		return clone.ExpiresAt != nil && clone.ExpiresAt.Before(t)
 	})
 
 	for _, e := range expired {
-		err := c.cloneContext.DestroyClone(c.dss, e.Name)
+		err := c.cloneContext.DestroyClone(dss, e.Name)
 		fmt.Printf("could not destroy clone %s, error: %s", e.Name, err.Error())
 	}
 
@@ -125,7 +120,10 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	c.claimLock.Lock()
 	defer c.claimLock.Unlock()
 
-	clones, err := c.readPooled()
+	dss, err := c.cloneContext.Z.Open()
+	defer dss.Close()
+
+	clones, err := c.readPooled(dss)
 	if err != nil {
 		return zdap.PublicClone{}, err
 	}
@@ -134,7 +132,7 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	})
 	var claim *zdap.PublicClone
 	if len(available) == 0 {
-		claim, err = c.addCloneToPool()
+		claim, err = c.addCloneToPool(dss)
 	} else {
 		claim = &available[0]
 	}
