@@ -268,10 +268,25 @@ func (c *Core) getResource(resourceName string) *internal.Resource {
 	return nil
 }
 
-func (c *Core) CreateBaseAndSnap(resourceName string) error {
+func (c *Core) CreateBaseAndSnap(resourceName string, useExistingBase bool) error {
 	r := c.getResource(resourceName)
 	if r == nil {
 		return fmt.Errorf("could not find resource %s", resourceName)
+	}
+	if useExistingBase {
+		dss, err := c.z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+		bs, err := c.z.ListBases(dss)
+		if err != nil {
+			return err
+		}
+		fmt.Println(bs)
+		//t := time.Now()
+		//return c.z.SnapDataset(name, r.Name, t)
+		return nil
 	}
 	return bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z)
 }

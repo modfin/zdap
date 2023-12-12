@@ -77,12 +77,18 @@ func main() {
 					{
 						Name:  "snap",
 						Usage: "creates a snap of a resource",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{
+								Name:  "use-existing",
+								Usage: "only create snap if base exists",
+							},
+						},
 						Action: func(c *cli.Context) error {
 							if !c.Args().Present() {
 								return errors.New("resources to create snaps from must be provided")
 							}
 							for _, resource := range c.Args().Slice() {
-								err := app.CreateBaseAndSnap(resource)
+								err := app.CreateBaseAndSnap(resource, c.Bool("use-existing"))
 								if err != nil {
 									return err
 								}
