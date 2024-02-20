@@ -379,7 +379,7 @@ func (z *ZFS) listReg(dss *Dataset, reg *regexp.Regexp) ([]string, error) {
 }
 
 func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error {
-	ds, err := zfs.DatasetSnapshot(fmt.Sprintf("%s/%s@snap", z.pool, name), false, nil, nil)
+	ds, err := zfs.DatasetSnapshot(fmt.Sprintf("%s/%s@snap", z.pool, name), false, nil)
 	if err != nil {
 		return err
 	}
