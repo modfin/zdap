@@ -3,7 +3,7 @@ module github.com/modfin/zdap
 go 1.20
 
 require (
-	github.com/bicomsystems/go-libzfs v0.3.5
+	github.com/bicomsystems/go-libzfs v0.4.0
 	github.com/c2h5oh/datasize v0.0.0-20220606134207-859f65c6625b
 	github.com/caarlos0/env v3.5.0+incompatible
 	github.com/docker/docker v24.0.7+incompatible
@@ -53,4 +53,4 @@ require (
 	gotest.tools/v3 v3.0.3 // indirect
 )
 
-replace github.com/bicomsystems/go-libzfs => github.com/ubuntu/go-libzfs v0.2.2-0.20220406085817-43edd0b6397a
+//replace github.com/bicomsystems/go-libzfs => github.com/ubuntu/go-libzfs v0.2.2-0.20220406085817-43edd0b6397a
