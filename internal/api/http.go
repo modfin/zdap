@@ -121,6 +121,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 
 	e.DELETE("/resources/:resource/clones/:time", func(c echo.Context) error {
 		dss, err := z.Open()
+		fmt.Println("opened")
 		if err != nil {
 			fmt.Println(err.Error())
 			return err
@@ -128,11 +129,13 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		defer dss.Close()
 
 		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
+		fmt.Println("fetched snaps")
 		if err != nil {
 			fmt.Println(err.Error())
 			return err
 		}
 		at, err := time.Parse(utils.TimestampFormat, c.Param("time"))
+		fmt.Printf("parsed time%s", at)
 		if err != nil {
 			fmt.Println(err.Error())
 			return err
@@ -140,6 +143,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 
 		for _, snap := range snaps {
 			for _, clone := range snap.Clones {
+				fmt.Println(clone.Name)
 				if clone.CreatedAt.Equal(at) {
 					fmt.Println("equals createdAt")
 					err = app.DestroyClone(dss, clone.Name)
