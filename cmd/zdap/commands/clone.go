@@ -150,6 +150,39 @@ type ClaimResult struct {
 	CloneId string `json:"clone_id"`
 }
 
+func ExpireClaimedResource(c *cli.Context) error {
+	args := c.Args().Slice()
+	if len(args) < 2 {
+		return errors.New("no claim specified")
+	}
+
+	resource := args[0]
+	claimId := args[1]
+
+	fmt.Println("destroying")
+	var err error
+
+	cfg, err := getConfig()
+	if err != nil {
+		return err
+	}
+
+	servers := cfg.Servers
+
+	for _, s := range servers {
+		client := zdap.NewClient(cfg.User, s)
+		err = client.ExpireClaim(resource, claimId)
+		if err != nil {
+			fmt.Println("[Err]", err)
+			err = nil
+			continue
+		}
+	}
+
+	return nil
+
+}
+
 func ClaimResource(c *cli.Context) error {
 	ttl := c.Int64("ttl")
 	clone, err := cloneResource(c.Args().Slice(), zdap.ClaimArgs{

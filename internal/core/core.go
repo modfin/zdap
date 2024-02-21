@@ -542,3 +542,10 @@ func (c *Core) ClaimPooledClone(resource string, timeout time.Duration) (zdap.Pu
 	}
 	return zdap.PublicClone{}, fmt.Errorf("no clone pool exists for resource '%s'", resource)
 }
+
+func (c *Core) ExpirePooledClone(resource string, claimId string) error {
+	if pool, exists := c.clonePools[resource]; exists {
+		return pool.Expire(claimId)
+	}
+	return nil
+}

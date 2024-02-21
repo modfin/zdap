@@ -135,6 +135,10 @@ func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []
 	})
 }
 
+func (c *ClonePool) Expire(claimId string) error {
+	return c.cloneContext.Z.Destroy(claimId)
+}
+
 func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	c.claimLock.Lock()
 	defer c.claimLock.Unlock()

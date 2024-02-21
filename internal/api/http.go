@@ -250,6 +250,13 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return c.JSON(http.StatusOK, clone)
 	})
 
+	e.DELETE("/resources/:resource/claims/:claimId", func(c echo.Context) error {
+		resource := c.Param("resource")
+		claimId := c.Param("claimId")
+
+		return app.ExpirePooledClone(resource, claimId)
+	})
+
 	fmt.Println("== Loaded Resources ==")
 	for _, r := range app.GetResourcesNames() {
 		fmt.Println(" -", r)

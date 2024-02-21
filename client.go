@@ -123,6 +123,22 @@ func (c Client) CloneSnap(resource string, snap time.Time, claimArgs ClaimArgs) 
 	return &clone, err
 }
 
+func (c Client) ExpireClaim(resource string, claimId string) error {
+	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/claims/%s", c.server, resource, claimId), "/")
+	req, err := c.newReq("DELETE", uri, nil)
+	if err != nil {
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	if res.StatusCode != 200 {
+		return fmt.Errorf("did not get status code 200, got %d", res.StatusCode)
+	}
+	return nil
+}
+
 func (c Client) DestroyClone(resource string, clone time.Time) error {
 	var cloneStr string
 	if !clone.IsZero() {

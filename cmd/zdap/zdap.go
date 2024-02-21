@@ -159,6 +159,11 @@ func main() {
 				},
 			},
 			{
+				Name:   "expire",
+				Usage:  "expire a pooled clone",
+				Action: commands.ExpireClaimedResource,
+			},
+			{
 				Name:         "destroy",
 				Usage:        "destroys a clone",
 				Action:       commands.DestroyClone,
