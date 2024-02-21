@@ -100,7 +100,9 @@ func (c Client) CloneSnap(resource string, snap time.Time, claimArgs ClaimArgs) 
 		return nil, err
 	}
 	if claimArgs.ClaimPooled && claimArgs.Ttl != 0 {
-		req.Form.Add("ttl", strconv.FormatInt(claimArgs.Ttl, 10))
+		q := req.URL.Query()
+		q.Add("ttl", strconv.FormatInt(claimArgs.Ttl, 10))
+		req.URL.RawQuery = q.Encode()
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
