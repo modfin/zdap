@@ -136,7 +136,27 @@ func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []
 }
 
 func (c *ClonePool) Expire(claimId string) error {
-	return c.cloneContext.Z.Destroy(claimId)
+	c.claimLock.Lock()
+	defer c.claimLock.Unlock()
+	dss, err := c.cloneContext.Z.Open()
+	if err != nil {
+		return err
+	}
+
+	pooled, err := c.readPooled(dss)
+	if err != nil {
+		return err
+	}
+
+	match := slicez.Filter(pooled, func(a zdap.PublicClone) bool {
+		return a.Name == claimId
+	})
+
+	if len(match) == 0 {
+		return fmt.Errorf("found no matching clones")
+	}
+
+	return match[0].Dataset.SetUserProperty(zfs.PropExpires, time.Now().Format(zfs.TimestampFormat))
 }
 
 func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
