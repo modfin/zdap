@@ -122,27 +122,32 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	e.DELETE("/resources/:resource/clones/:time", func(c echo.Context) error {
 		dss, err := z.Open()
 		if err != nil {
+			fmt.Println(err.Error())
 			return err
 		}
 		defer dss.Close()
 
 		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
+			fmt.Println(err.Error())
 			return err
 		}
 		at, err := time.Parse(utils.TimestampFormat, c.Param("time"))
 		if err != nil {
+			fmt.Println(err.Error())
 			return err
 		}
 
 		for _, snap := range snaps {
 			for _, clone := range snap.Clones {
 				if clone.CreatedAt.Equal(at) {
+					fmt.Println("equals createdAt")
 					err = app.DestroyClone(dss, clone.Name)
 					return c.NoContent(http.StatusOK)
 				}
 			}
 		}
+		fmt.Println("nothing found")
 		return errors.New("could not find clone to destroy")
 	})
 

@@ -176,8 +176,7 @@ func DestroyClone(cloneName string, docker *client.Client, z *zfs.ZFS) error {
 			if strings.HasPrefix(name, "/"+cloneName) {
 				if c.State == "running" {
 					fmt.Println(" - Killing", name)
-					//d := time.Millisecond
-					d := 1
+					d := 0
 					err = docker.ContainerStop(context.Background(), c.ID, container.StopOptions{Timeout: &d})
 					if err != nil {
 						return err

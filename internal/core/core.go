@@ -471,6 +471,7 @@ func (c *Core) DestroyClone(dss *zfs.Dataset, cloneName string) error {
 		}
 	}
 	if !contain {
+		fmt.Println("not contain")
 		return fmt.Errorf("clone, %s, does not exist", cloneName)
 	}
 
