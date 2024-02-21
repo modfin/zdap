@@ -3,7 +3,6 @@ package zdap
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/modfin/zdap/cmd/zdap/commands"
 	"github.com/modfin/zdap/internal/utils"
 	"io"
 	"io/ioutil"
@@ -16,6 +15,11 @@ import (
 type Client struct {
 	user   string
 	server string
+}
+
+type ClaimArgs struct {
+	ClaimPooled bool
+	Ttl         int64
 }
 
 func NewClient(user, server string) *Client {
@@ -82,7 +86,7 @@ func (c Client) GetResources() ([]PublicResource, error) {
 	return resources, err
 }
 
-func (c Client) CloneSnap(resource string, snap time.Time, claimArgs commands.ClaimArgs) (*PublicClone, error) {
+func (c Client) CloneSnap(resource string, snap time.Time, claimArgs ClaimArgs) (*PublicClone, error) {
 	var snapStr string
 	if !snap.IsZero() {
 		snapStr = snap.Format(utils.TimestampFormat)

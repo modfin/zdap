@@ -135,7 +135,7 @@ func CloneResourceCompletion(c *cli.Context) {
 }
 
 func CloneResource(c *cli.Context) error {
-	clone, err := cloneResource(c.Args().Slice(), ClaimArgs{})
+	clone, err := cloneResource(c.Args().Slice(), zdap.ClaimArgs{})
 	if err != nil {
 		return err
 	}
@@ -152,7 +152,7 @@ type ClaimResult struct {
 
 func ClaimResource(c *cli.Context) error {
 	ttl := c.Int64("ttl")
-	clone, err := cloneResource(c.Args().Slice(), ClaimArgs{
+	clone, err := cloneResource(c.Args().Slice(), zdap.ClaimArgs{
 		ClaimPooled: true,
 		Ttl:         ttl,
 	})
@@ -171,12 +171,7 @@ func ClaimResource(c *cli.Context) error {
 	return nil
 }
 
-type ClaimArgs struct {
-	ClaimPooled bool
-	Ttl         int64
-}
-
-func cloneResource(args []string, claimArgs ClaimArgs) (*zdap.PublicClone, error) {
+func cloneResource(args []string, claimArgs zdap.ClaimArgs) (*zdap.PublicClone, error) {
 	var err error
 
 	cfg, err := getConfig()
@@ -361,7 +356,7 @@ func AttachClone(c *cli.Context) error {
 
 	if c.Bool("new") {
 		fmt.Print("Cloning ", resource, "...")
-		clone, err = cloneResource(c.Args().Slice(), ClaimArgs{
+		clone, err = cloneResource(c.Args().Slice(), zdap.ClaimArgs{
 			ClaimPooled: c.Bool("claim"),
 			Ttl:         c.Int64("ttl"),
 		})
