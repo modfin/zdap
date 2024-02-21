@@ -225,7 +225,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	e.POST("/resources/:resource/claim", func(c echo.Context) error {
 		resource := c.Param("resource")
 		timeoutStr := c.QueryParam("ttl")
-		timeout := internal.DefaultClaimMaxTimeoutSeconds * time.Second
+		timeout := internal.DefaultClaimTimeoutSeconds * time.Second
 		if timeoutStr != "" {
 			t, err := strconv.ParseInt(timeoutStr, 10, 64)
 			if err == nil {
