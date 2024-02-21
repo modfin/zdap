@@ -224,7 +224,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 
 	e.POST("/resources/:resource/claim", func(c echo.Context) error {
 		resource := c.Param("resource")
-		timeoutStr := c.QueryParam("timeoutSeconds")
+		timeoutStr := c.QueryParam("ttl")
 		timeout := internal.DefaultClaimMaxTimeoutSeconds * time.Second
 		if timeoutStr != "" {
 			t, err := strconv.ParseInt(timeoutStr, 10, 64)
@@ -235,7 +235,6 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 
 		clone, err := app.ClaimPooledClone(resource, timeout)
 		if err != nil {
-			fmt.Println("error return")
 			fmt.Println(err.Error())
 			return c.JSON(http.StatusInternalServerError, err)
 		}

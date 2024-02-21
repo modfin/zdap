@@ -3,10 +3,12 @@ package zdap
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/modfin/zdap/cmd/zdap/commands"
 	"github.com/modfin/zdap/internal/utils"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -80,18 +82,21 @@ func (c Client) GetResources() ([]PublicResource, error) {
 	return resources, err
 }
 
-func (c Client) CloneSnap(resource string, snap time.Time, claimPooled bool) (*PublicClone, error) {
+func (c Client) CloneSnap(resource string, snap time.Time, claimArgs commands.ClaimArgs) (*PublicClone, error) {
 	var snapStr string
 	if !snap.IsZero() {
 		snapStr = snap.Format(utils.TimestampFormat)
 	}
 	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/snaps/%s", c.server, resource, snapStr), "/")
-	if claimPooled {
+	if claimArgs.ClaimPooled {
 		uri = strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/claim", c.server, resource), "/")
 	}
 	req, err := c.newReq("POST", uri, nil)
 	if err != nil {
 		return nil, err
+	}
+	if claimArgs.ClaimPooled && claimArgs.Ttl != 0 {
+		req.Form.Add("ttl", strconv.FormatInt(claimArgs.Ttl, 10))
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {

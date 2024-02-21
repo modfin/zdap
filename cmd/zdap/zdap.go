@@ -146,9 +146,17 @@ func main() {
 			},
 			{
 				Name:         "claim",
-				Usage:        "claim a pooled clone",
+				Usage:        "claim a pooled clone, first line of output is json response",
 				Action:       commands.ClaimResource,
 				BashComplete: commands.CloneResourceCompletion,
+				Flags: []cli.Flag{
+					&cli.Int64Flag{
+						Name:        "ttl",
+						DefaultText: "0",
+						Usage:       "ttl in seconds, uses pool default if set to 0",
+						Value:       0,
+					},
+				},
 			},
 			{
 				Name:         "destroy",

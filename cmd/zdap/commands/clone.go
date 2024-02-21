@@ -135,7 +135,7 @@ func CloneResourceCompletion(c *cli.Context) {
 }
 
 func CloneResource(c *cli.Context) error {
-	clone, err := cloneResource(c.Args().Slice(), false)
+	clone, err := cloneResource(c.Args().Slice(), ClaimArgs{})
 	if err != nil {
 		return err
 	}
@@ -151,7 +151,11 @@ type ClaimResult struct {
 }
 
 func ClaimResource(c *cli.Context) error {
-	clone, err := cloneResource(c.Args().Slice(), true)
+	ttl := c.Int64("ttl")
+	clone, err := cloneResource(c.Args().Slice(), ClaimArgs{
+		ClaimPooled: true,
+		Ttl:         ttl,
+	})
 	if err != nil {
 		return err
 	}
@@ -166,7 +170,13 @@ func ClaimResource(c *cli.Context) error {
 	fmt.Printf("zdap attach @%s %s %s\n", clone.Server, clone.Resource, clone.CreatedAt.Format(utils.TimestampFormat))
 	return nil
 }
-func cloneResource(args []string, claimPooled bool) (*zdap.PublicClone, error) {
+
+type ClaimArgs struct {
+	ClaimPooled bool
+	Ttl         int64
+}
+
+func cloneResource(args []string, claimArgs ClaimArgs) (*zdap.PublicClone, error) {
 	var err error
 
 	cfg, err := getConfig()
@@ -188,13 +198,13 @@ func cloneResource(args []string, claimPooled bool) (*zdap.PublicClone, error) {
 		server = servers[0]
 	}
 	if len(servers) == 0 {
-		server, err = findServerCandidate(resource, cfg.User, cfg.Servers, claimPooled)
+		server, err = findServerCandidate(resource, cfg.User, cfg.Servers, claimArgs.ClaimPooled)
 		if err != nil {
 			return nil, fmt.Errorf("could not find a suitable server, %w", err)
 		}
 	}
 	client := zdap.NewClient(cfg.User, server)
-	clone, err := client.CloneSnap(resource, snap, claimPooled)
+	clone, err := client.CloneSnap(resource, snap, claimArgs)
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +361,10 @@ func AttachClone(c *cli.Context) error {
 
 	if c.Bool("new") {
 		fmt.Print("Cloning ", resource, "...")
-		clone, err = cloneResource(c.Args().Slice(), c.Bool("claim"))
+		clone, err = cloneResource(c.Args().Slice(), ClaimArgs{
+			ClaimPooled: c.Bool("claim"),
+			Ttl:         c.Int64("ttl"),
+		})
 		if err != nil {
 			return err
 		}
