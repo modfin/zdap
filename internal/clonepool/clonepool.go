@@ -17,6 +17,7 @@ type ClonePool struct {
 	cloneContext    *cloning.CloneContext
 	ClonesAvailable int
 	claimLock       sync.Mutex
+	expireLock      sync.Mutex
 }
 
 func NewClonePool(resource internal.Resource, cloneContext *cloning.CloneContext) ClonePool {
@@ -118,6 +119,9 @@ func (c *ClonePool) readPooled(dss *zfs.Dataset) ([]zdap.PublicClone, error) {
 }
 
 func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []zdap.PublicClone {
+	c.expireLock.Lock()
+	defer c.expireLock.Unlock()
+
 	t := time.Now()
 	expired := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
 		return clone.ExpiresAt != nil && clone.ExpiresAt.Before(t)
@@ -136,8 +140,8 @@ func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []
 }
 
 func (c *ClonePool) Expire(claimId string) error {
-	c.claimLock.Lock()
-	defer c.claimLock.Unlock()
+	c.expireLock.Lock()
+	defer c.expireLock.Unlock()
 	dss, err := c.cloneContext.Z.Open()
 	if err != nil {
 		return err
