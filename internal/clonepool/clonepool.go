@@ -34,6 +34,9 @@ func (c *ClonePool) Start() {
 }
 
 func (c *ClonePool) action() {
+	c.expireLock.Lock()
+	defer c.expireLock.Unlock()
+
 	dss, err := c.cloneContext.Z.Open()
 	defer dss.Close()
 	if err != nil {
@@ -140,8 +143,8 @@ func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []
 }
 
 func (c *ClonePool) Expire(claimId string) error {
-	c.claimLock.Lock()
-	defer c.claimLock.Unlock()
+	c.expireLock.Lock()
+	defer c.expireLock.Unlock()
 	dss, err := c.cloneContext.Z.Open()
 	if err != nil {
 		return err
