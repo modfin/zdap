@@ -93,7 +93,7 @@ func (c Client) CloneSnap(resource string, snap time.Time, claimArgs ClaimArgs) 
 	}
 	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/snaps/%s", c.server, resource, snapStr), "/")
 	if claimArgs.ClaimPooled {
-		uri = strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/claim", c.server, resource), "/")
+		uri = fmt.Sprintf("http://%s/resources/%s/claim", c.server, resource)
 	}
 	req, err := c.newReq("POST", uri, nil)
 	if err != nil {
