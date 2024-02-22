@@ -2,6 +2,7 @@ package clonepool
 
 import (
 	"fmt"
+	"github.com/labstack/gommon/log"
 	"github.com/modfin/henry/slicez"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
@@ -43,7 +44,6 @@ func (c *ClonePool) action() {
 		fmt.Printf("error trying to open z, error: %s\n", err.Error())
 		return
 	}
-	//log.Info("Running clonepool for %s", c.resource.Name)
 
 	allClones, err := c.readPooled(dss)
 	if err != nil {
@@ -64,10 +64,7 @@ func (c *ClonePool) action() {
 	if nbrClones+clonesToAdd > c.resource.ClonePool.MaxClones {
 		clonesToAdd = c.resource.ClonePool.MaxClones - nbrClones
 	}
-	//log.Infof("min: %d", c.resource.ClonePool.MinClones)
-	//log.Infof("max: %d", c.resource.ClonePool.MaxClones)
-	//log.Infof("nbr: %d", nbrClones)
-	//log.Infof("adding: %d", clonesToAdd)
+
 	for i := 0; i < clonesToAdd; i++ {
 		_, err := c.addCloneToPool(dss)
 		if err != nil {
@@ -80,7 +77,6 @@ func (c *ClonePool) action() {
 		c.claimLock.Unlock()
 	}
 
-	//log.Info("Finished running clone pool")
 }
 
 func (c *ClonePool) getAvailableClones(dss *zfs.Dataset) ([]zdap.PublicClone, error) {
@@ -107,7 +103,7 @@ func (c *ClonePool) addCloneToPool(dss *zfs.Dataset) (*zdap.PublicClone, error) 
 	})
 	latestDate := snaps[0].CreatedAt
 
-	//log.Infof("Adding clone to %s pool", c.resource.Name)
+	log.Infof("Adding clone to %s pool", c.resource.Name)
 	return c.cloneContext.CloneResourcePooled(dss, "zdapd", c.resource.Name, latestDate)
 }
 
