@@ -159,7 +159,6 @@ func ExpireClaimedResource(c *cli.Context) error {
 	resource := args[0]
 	claimId := args[1]
 
-	fmt.Println("destroying")
 	var err error
 
 	cfg, err := getConfig()
