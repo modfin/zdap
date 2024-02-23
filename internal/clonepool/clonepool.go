@@ -165,6 +165,7 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	defer c.claimLock.Unlock()
 
 	dss, err := c.cloneContext.Z.Open()
+	defer dss.Close()
 	if err != nil {
 		return zdap.PublicClone{}, err
 	}
@@ -174,12 +175,13 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 		dss.Close()
 
 		// reset dataset and query new clones
-		dss, err = c.cloneContext.Z.Open()
+		updatedDss, err := c.cloneContext.Z.Open()
+		defer updatedDss.Close()
 		if err != nil {
 			return zdap.PublicClone{}, err
 		}
 
-		claim, _ = c.getPooledClone(dss)
+		claim, _ = c.getPooledClone(updatedDss)
 	}
 
 	if claim == nil {
