@@ -10,8 +10,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+var PoolLock sync.RWMutex
 
 // Dataset currently just wrap the dataset structure from go-libzfs, but will probably be extended in the future.
 type Dataset struct {
@@ -89,8 +92,8 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 		return nil
 		//return fmt.Errorf("could not open ds: %w", err)
 	}
-	defer dataset.Close()
 	err = dataset.UnmountAll(0)
+
 	if err != nil {
 		return fmt.Errorf("could not unmout all: %w", err)
 	}
@@ -148,6 +151,8 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 }
 
 func (z *ZFS) Destroy(name string) error {
+	PoolLock.Lock()
+	PoolLock.Unlock()
 	return z.destroyDatasetRec(fmt.Sprintf("%s/%s", z.pool, name))
 }
 
@@ -511,6 +516,8 @@ func (z *ZFS) TotalSpace(dss *Dataset) (uint64, error) {
 }
 
 func (z *ZFS) Open() (*Dataset, error) {
+	PoolLock.RLock()
+	defer PoolLock.RUnlock()
 	dss, err := zfs.DatasetOpen(z.pool)
 	if err != nil {
 		return nil, err
