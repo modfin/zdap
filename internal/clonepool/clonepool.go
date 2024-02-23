@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+var GlobalExpireLock = sync.Mutex{}
+
 type ClonePool struct {
 	resource        internal.Resource
 	cloneContext    *cloning.CloneContext
@@ -35,8 +37,8 @@ func (c *ClonePool) Start() {
 }
 
 func (c *ClonePool) action() {
-	c.expireLock.Lock()
-	defer c.expireLock.Unlock()
+	GlobalExpireLock.Lock()
+	defer GlobalExpireLock.Unlock()
 
 	dss, err := c.cloneContext.Z.Open()
 	defer dss.Close()
@@ -139,8 +141,8 @@ func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []
 }
 
 func (c *ClonePool) Expire(claimId string) error {
-	c.expireLock.Lock()
-	defer c.expireLock.Unlock()
+	GlobalExpireLock.Lock()
+	defer GlobalExpireLock.Unlock()
 	dss, err := c.cloneContext.Z.Open()
 	if err != nil {
 		return err

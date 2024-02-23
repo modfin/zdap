@@ -79,17 +79,19 @@ func (c *Core) Start() error {
 			ids = append(ids, id)
 		}
 
-		cloneContext := cloning.CloneContext{
-			Resource:       &r,
-			Docker:         c.docker,
-			Z:              c.z,
-			ConfigDir:      c.configDir,
-			NetworkAddress: c.networkAddress,
-			ApiPort:        c.apiPort,
+		if r.ClonePool.MinClones != 0 {
+			cloneContext := cloning.CloneContext{
+				Resource:       &r,
+				Docker:         c.docker,
+				Z:              c.z,
+				ConfigDir:      c.configDir,
+				NetworkAddress: c.networkAddress,
+				ApiPort:        c.apiPort,
+			}
+			clonePool := clonepool.NewClonePool(r, &cloneContext)
+			clonePool.Start()
+			c.clonePools[r.Name] = &clonePool
 		}
-		clonePool := clonepool.NewClonePool(r, &cloneContext)
-		clonePool.Start()
-		c.clonePools[r.Name] = &clonePool
 	}
 	c.cron.Start()
 	for i, r := range c.resources {
