@@ -13,14 +13,11 @@ import (
 	"time"
 )
 
-var GlobalExpireLock = sync.Mutex{}
-
 type ClonePool struct {
 	resource        internal.Resource
 	cloneContext    *cloning.CloneContext
 	ClonesAvailable int
 	claimLock       sync.Mutex
-	expireLock      sync.Mutex
 }
 
 func NewClonePool(resource internal.Resource, cloneContext *cloning.CloneContext) ClonePool {
@@ -37,8 +34,6 @@ func (c *ClonePool) Start() {
 }
 
 func (c *ClonePool) action() {
-	GlobalExpireLock.Lock()
-	defer GlobalExpireLock.Unlock()
 
 	dss, err := c.cloneContext.Z.Open()
 	defer dss.Close()
@@ -141,8 +136,6 @@ func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []
 }
 
 func (c *ClonePool) Expire(claimId string) error {
-	GlobalExpireLock.Lock()
-	defer GlobalExpireLock.Unlock()
 	dss, err := c.cloneContext.Z.Open()
 	if err != nil {
 		return err
@@ -161,7 +154,10 @@ func (c *ClonePool) Expire(claimId string) error {
 		return fmt.Errorf("found no matching clones")
 	}
 
-	return match[0].Dataset.SetUserProperty(zfs.PropExpires, time.Now().Format(zfs.TimestampFormat))
+	c.cloneContext.Z.WriteLock()
+	err = match[0].Dataset.SetUserProperty(zfs.PropExpires, time.Now().Format(zfs.TimestampFormat))
+	c.cloneContext.Z.WriteUnlock()
+	return err
 }
 
 func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
@@ -197,7 +193,9 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 	}
 	expires := time.Now().Add(timeout)
 	fmt.Println(claim.Dataset)
+	c.cloneContext.Z.WriteLock()
 	err = claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
+	c.cloneContext.Z.WriteUnlock()
 	if err != nil {
 		return zdap.PublicClone{}, err
 	}

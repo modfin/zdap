@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-var PoolLock sync.RWMutex
-
 // Dataset currently just wrap the dataset structure from go-libzfs, but will probably be extended in the future.
 type Dataset struct {
 	*zfs.Dataset
@@ -28,7 +26,8 @@ func NewZFS(pool string) *ZFS {
 }
 
 type ZFS struct {
-	pool string
+	pool     string
+	poolLock sync.RWMutex
 }
 
 const PropCreated = "zdap:created_at"
@@ -151,8 +150,8 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 }
 
 func (z *ZFS) Destroy(name string) error {
-	PoolLock.Lock()
-	PoolLock.Unlock()
+	z.WriteLock()
+	defer z.WriteUnlock()
 	return z.destroyDatasetRec(fmt.Sprintf("%s/%s", z.pool, name))
 }
 
@@ -516,11 +515,27 @@ func (z *ZFS) TotalSpace(dss *Dataset) (uint64, error) {
 }
 
 func (z *ZFS) Open() (*Dataset, error) {
-	PoolLock.RLock()
-	defer PoolLock.RUnlock()
+	z.ReadLock()
+	defer z.ReadUnlock()
 	dss, err := zfs.DatasetOpen(z.pool)
 	if err != nil {
 		return nil, err
 	}
 	return &Dataset{Dataset: &dss}, nil
+}
+
+func (z *ZFS) ReadLock() {
+	z.poolLock.RLock()
+}
+
+func (z *ZFS) ReadUnlock() {
+	z.poolLock.RUnlock()
+}
+
+func (z *ZFS) WriteLock() {
+	z.poolLock.Lock()
+}
+
+func (z *ZFS) WriteUnlock() {
+	z.poolLock.Unlock()
 }
