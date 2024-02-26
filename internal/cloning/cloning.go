@@ -219,7 +219,9 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		return nil, err
 	}
 
+	fmt.Printf("Trying to find clone matching %s", cloneName)
 	matchingClones := slicez.Filter(clones, func(c zdap.PublicClone) bool {
+		fmt.Printf(c.Name)
 		return c.Name == cloneName
 	})
 	if matchingClones != nil && len(matchingClones) > 0 {
