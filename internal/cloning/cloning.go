@@ -85,7 +85,7 @@ func (c *CloneContext) GetLatestResourceSnap(dss *zfs.Dataset, resourceName stri
 	}
 
 	sort.Slice(snaps, func(i, j int) bool {
-		return snaps[i].CreatedAt.Before(snaps[j].CreatedAt)
+		return snaps[j].CreatedAt.Before(snaps[i].CreatedAt)
 	})
 
 	if len(snaps) == 0 {
