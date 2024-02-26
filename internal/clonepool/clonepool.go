@@ -8,7 +8,6 @@ import (
 	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/cloning"
 	"github.com/modfin/zdap/internal/zfs"
-	"sort"
 	"sync"
 	"time"
 )
@@ -48,15 +47,20 @@ func (c *ClonePool) action() {
 		return
 	}
 
-	clones := c.pruneExpired(dss, allClones)
-	available := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
+	err = c.expireClonesFromOldSnaps(dss)
+	if err != nil {
+		fmt.Printf("could not expire old clones, error %s", err)
+	}
+
+	nonExpiredClones := c.pruneExpired(dss, allClones)
+	available := slicez.Filter(nonExpiredClones, func(clone zdap.PublicClone) bool {
 		return clone.ExpiresAt == nil && clone.Healthy
 	})
 	c.claimLock.Lock()
 	c.ClonesAvailable = len(available)
 	c.claimLock.Unlock()
 
-	nbrClones := len(clones)
+	nbrClones := len(nonExpiredClones)
 	clonesToAdd := c.resource.ClonePool.MinClones - len(available)
 	if nbrClones+clonesToAdd > c.resource.ClonePool.MaxClones {
 		clonesToAdd = c.resource.ClonePool.MaxClones - nbrClones
@@ -76,6 +80,32 @@ func (c *ClonePool) action() {
 
 }
 
+func (c *ClonePool) expireClonesFromOldSnaps(dss *zfs.Dataset) error {
+	c.claimLock.Lock()
+	defer c.claimLock.Unlock()
+
+	pooledClones, err := c.readPooled(dss)
+	if err != nil {
+		return err
+	}
+
+	latestSnap, err := c.cloneContext.GetLatestResourceSnap(dss, c.resource.Name)
+	if err != nil {
+		return err
+	}
+
+	slicez.Each(pooledClones, func(a zdap.PublicClone) {
+		if a.SnappedAt != latestSnap.CreatedAt {
+			err = c.Expire(a.Name)
+			if err != nil {
+				log.Errorf("Error when expiring clone %s", err)
+			}
+		}
+	})
+
+	return nil
+}
+
 func (c *ClonePool) getAvailableClones(dss *zfs.Dataset) ([]zdap.PublicClone, error) {
 	pooled, err := c.readPooled(dss)
 	if err != nil {
@@ -90,18 +120,13 @@ func (c *ClonePool) getAvailableClones(dss *zfs.Dataset) ([]zdap.PublicClone, er
 }
 
 func (c *ClonePool) addCloneToPool(dss *zfs.Dataset) (*zdap.PublicClone, error) {
-	snaps, err := c.cloneContext.GetResourceSnaps(dss, c.resource.Name)
-	if err != nil || snaps == nil {
+	snap, err := c.cloneContext.GetLatestResourceSnap(dss, c.resource.Name)
+	if err != nil {
 		return nil, err
 	}
 
-	sort.Slice(snaps, func(i, j int) bool {
-		return snaps[i].CreatedAt.Before(snaps[j].CreatedAt)
-	})
-	latestDate := snaps[0].CreatedAt
-
 	log.Infof("Adding clone to %s pool", c.resource.Name)
-	return c.cloneContext.CloneResourcePooled(dss, "zdapd", c.resource.Name, latestDate)
+	return c.cloneContext.CloneResourcePooled(dss, "zdapd", c.resource.Name, snap.CreatedAt)
 }
 
 func (c *ClonePool) readPooled(dss *zfs.Dataset) ([]zdap.PublicClone, error) {

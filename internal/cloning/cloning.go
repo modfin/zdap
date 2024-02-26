@@ -17,6 +17,7 @@ import (
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 	"regexp"
+	"sort"
 	"sync"
 	"time"
 )
@@ -75,6 +76,23 @@ func (c *CloneContext) GetResourceSnaps(dss *zfs.Dataset, resourceName string) (
 		rsnap = append(rsnap, snap)
 	}
 	return rsnap, nil
+}
+
+func (c *CloneContext) GetLatestResourceSnap(dss *zfs.Dataset, resourceName string) (zdap.PublicSnap, error) {
+	snaps, err := c.GetResourceSnaps(dss, resourceName)
+	if err != nil || snaps == nil {
+		return zdap.PublicSnap{}, err
+	}
+
+	sort.Slice(snaps, func(i, j int) bool {
+		return snaps[i].CreatedAt.Before(snaps[j].CreatedAt)
+	})
+
+	if len(snaps) == 0 {
+		return zdap.PublicSnap{}, fmt.Errorf("unable to find snap for %s", resourceName)
+	}
+
+	return snaps[0], nil
 }
 
 var cloneCreationMutex = sync.Mutex{}
