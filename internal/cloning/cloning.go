@@ -151,10 +151,12 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		},
 	}, networkConfig, nil, cloneName)
 	if err != nil {
+		fmt.Printf("Error when creating 1st container")
 		return nil, err
 	}
 	err = docker.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{})
 	if err != nil {
+		fmt.Printf("Error when starting 1st container")
 		return nil, err
 	}
 
@@ -187,10 +189,12 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		},
 	}, networkConfig, nil, fmt.Sprintf("%s-proxy", cloneName))
 	if err != nil {
+		fmt.Printf("Error when creating 2nd container")
 		return nil, err
 	}
 	err = docker.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{})
 	if err != nil {
+		fmt.Printf("Error when starting 2nd container")
 		return nil, err
 	}
 	fmt.Println(" - db proxy name", fmt.Sprintf("tcp://%s-proxy:%d", cloneName, port))
