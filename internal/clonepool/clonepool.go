@@ -195,7 +195,6 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 		timeout = maxTimeout
 	}
 	expires := time.Now().Add(timeout)
-	fmt.Println(claim.Dataset)
 	c.cloneContext.Z.WriteLock()
 	err = claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
 	c.cloneContext.Z.WriteUnlock()
