@@ -151,12 +151,10 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		},
 	}, networkConfig, nil, cloneName)
 	if err != nil {
-		fmt.Printf("Error when creating 1st container")
 		return nil, err
 	}
 	err = docker.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{})
 	if err != nil {
-		fmt.Printf("Error when starting 1st container")
 		return nil, err
 	}
 
@@ -223,9 +221,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		return nil, err
 	}
 
-	fmt.Printf("Trying to find clone matching %s", cloneName)
 	matchingClones := slicez.Filter(clones, func(c zdap.PublicClone) bool {
-		fmt.Printf(c.Name)
 		return c.Name == cloneName
 	})
 	if matchingClones != nil && len(matchingClones) > 0 {
@@ -233,10 +229,11 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		m := matchingClones[0]
 		z.WriteLock()
 		err := m.Dataset.SetUserProperty(zfs.PropHealthy, "true")
-		if err != nil {
-			fmt.Printf("Error %s", err)
-		}
 		z.WriteUnlock()
+		if err != nil {
+			fmt.Printf("Error when setting healthy prop %s", err)
+			return nil, err
+		}
 		defer m.Dataset.Close()
 	}
 
