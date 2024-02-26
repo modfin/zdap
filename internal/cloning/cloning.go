@@ -130,13 +130,13 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		ExposedPorts: nat.PortSet{
 			nat.Port(fmt.Sprintf("%d/tcp", r.Docker.Port)): struct{}{},
 		},
-		//Healthcheck: &container.HealthConfig{
-		//	Test:        []string{"CMD-SHELL", r.Docker.Healthcheck},
-		//	Interval:    1 * time.Second,
-		//	Timeout:     1 * time.Second,
-		//	StartPeriod: 1 * time.Second,
-		//	Retries:     1,
-		//},
+		Healthcheck: &container.HealthConfig{
+			Test:        []string{"CMD-SHELL", r.Docker.Healthcheck},
+			Interval:    1 * time.Second,
+			Timeout:     10 * time.Second,
+			StartPeriod: 1 * time.Second,
+			Retries:     1,
+		},
 	}, &container.HostConfig{
 		RestartPolicy: container.RestartPolicy{
 			Name:              "unless-stopped",
