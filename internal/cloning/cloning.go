@@ -225,7 +225,9 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	if matchingClones != nil && len(matchingClones) > 0 {
 		fmt.Printf("Setting healthy for %s\n", cloneName)
 		m := matchingClones[0]
+		z.WriteLock()
 		m.Dataset.SetUserProperty(zfs.PropHealthy, "true")
+		z.WriteUnlock()
 		defer m.Dataset.Close()
 	}
 

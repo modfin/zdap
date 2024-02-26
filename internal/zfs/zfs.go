@@ -383,6 +383,9 @@ func (z *ZFS) listReg(dss *Dataset, reg *regexp.Regexp) ([]string, error) {
 }
 
 func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error {
+	z.WriteLock()
+	defer z.WriteUnlock()
+
 	ds, err := zfs.DatasetSnapshot(fmt.Sprintf("%s/%s@snap", z.pool, name), false, nil)
 	if err != nil {
 		return err
@@ -401,6 +404,8 @@ func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error
 }
 
 func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool) (string, string, error) {
+	z.WriteLock()
+	defer z.WriteUnlock()
 
 	parts := strings.Split(snapName, "@")
 	if len(parts) != 2 {

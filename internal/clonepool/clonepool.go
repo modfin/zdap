@@ -140,6 +140,7 @@ func (c *ClonePool) Expire(claimId string) error {
 	if err != nil {
 		return err
 	}
+	defer dss.Close()
 
 	pooled, err := c.readPooled(dss)
 	if err != nil {
