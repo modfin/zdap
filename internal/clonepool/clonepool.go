@@ -47,9 +47,11 @@ func (c *ClonePool) action() {
 		return
 	}
 
-	err = c.expireClonesFromOldSnaps(dss)
-	if err != nil {
-		fmt.Printf("could not expire old clones, error %s", err)
+	if c.resource.ClonePool.ResetOnNewSnap {
+		err = c.expireClonesFromOldSnaps(dss)
+		if err != nil {
+			fmt.Printf("could not expire old clones, error %s", err)
+		}
 	}
 
 	nonExpiredClones := c.pruneExpired(dss, allClones)
