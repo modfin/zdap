@@ -91,7 +91,7 @@ func (z *ZFS) CreateDataset(name string, resource string, creation time.Time) (s
 func (z *ZFS) destroyDatasetRec(path string) error {
 	dataset, err := zfs.DatasetOpen(path)
 	if err != nil {
-		return nil
+		return err
 		//return fmt.Errorf("could not open ds: %w", err)
 	}
 	err = dataset.UnmountAll(0)
@@ -153,8 +153,8 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 }
 
 func (z *ZFS) Destroy(name string) error {
-	z.writeLock()
-	defer z.writeUnlock()
+	//z.writeLock()
+	//defer z.writeUnlock()
 	return z.destroyDatasetRec(fmt.Sprintf("%s/%s", z.pool, name))
 }
 
