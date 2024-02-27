@@ -163,15 +163,10 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 }
 
 func (z *ZFS) Destroy(name string) error {
-	//z.writeLock()
-	//defer z.writeUnlock()
 	return z.destroyDatasetRec(fmt.Sprintf("%s/%s", z.pool, name))
 }
 
 func (z *ZFS) DestroyAll() error {
-	//z.writeLock()
-	//defer z.writeUnlock()
-
 	z.readLock()
 	ds, err := zfs.DatasetOpen(z.pool)
 	z.readUnlock()
