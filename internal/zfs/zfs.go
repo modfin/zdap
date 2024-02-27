@@ -59,6 +59,9 @@ func (z *ZFS) GetDatasetSnapNameAt(name string, at time.Time) string {
 }
 
 func (z *ZFS) CreateDataset(name string, resource string, creation time.Time) (string, error) {
+	z.WriteLock()
+	defer z.WriteUnlock()
+
 	ds, err := zfs.DatasetCreate(fmt.Sprintf("%s/%s", z.pool, name), zfs.DatasetTypeFilesystem, nil)
 	if err != nil {
 		return "", err
@@ -156,6 +159,9 @@ func (z *ZFS) Destroy(name string) error {
 }
 
 func (z *ZFS) DestroyAll() error {
+	z.WriteLock()
+	defer z.WriteUnlock()
+
 	ds, err := zfs.DatasetOpen(z.pool)
 
 	if err != nil {
