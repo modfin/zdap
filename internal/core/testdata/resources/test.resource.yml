@@ -1,6 +1,6 @@
-name: postgres-trade
+name: postgres-dbname
 docker:
-  image: eu.gcr.io/spidercave/lib/postgres:15.3
+  image: postgres:15.3-bullseye
   port: 5432
   volume: /var/lib/postgresql/data
   env:
@@ -9,8 +9,8 @@ docker:
   ## Health Check must exist in order to know when the container is really started
   healthcheck: echo SELECT 1 | psql -U postgres
 cron: 45 4 * * *
-retrieval: ./postgres-trade.retrieval.sh
-creation: ./postgres-trade.creation.sh
+retrieval: ./postgres-dbname.retrieval.sh
+creation: ./postgres-dbname.creation.sh
 clone_pool:
   reset_on_new_snap: true
   min_clones: 8
