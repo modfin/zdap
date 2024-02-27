@@ -104,7 +104,9 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 		return fmt.Errorf("could not unmout all: %w", err)
 	}
 
+	z.readLock()
 	clones, err := dataset.Clones()
+	z.readUnlock()
 	if err != nil {
 		return fmt.Errorf("could not get clones: %w", err)
 	}
@@ -143,12 +145,16 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 	}
 
 	dataset.Close()
+	z.readLock()
 	dataset, err = zfs.DatasetOpen(path)
+	z.readUnlock()
 	if err != nil {
 		return fmt.Errorf("could not open ds2: %w", err)
 	}
 	fmt.Println(" - Destroying", path)
+	z.writeLock()
 	err = dataset.Destroy(false)
+	z.writeUnlock()
 	if err != nil {
 		return fmt.Errorf("could not destroy ds: %w", err)
 	}
@@ -163,10 +169,12 @@ func (z *ZFS) Destroy(name string) error {
 }
 
 func (z *ZFS) DestroyAll() error {
-	z.writeLock()
-	defer z.writeUnlock()
+	//z.writeLock()
+	//defer z.writeUnlock()
 
+	z.readLock()
 	ds, err := zfs.DatasetOpen(z.pool)
+	z.readUnlock()
 
 	if err != nil {
 		return err
@@ -188,7 +196,9 @@ func (z *ZFS) DestroyAll() error {
 
 	isClone := map[string]bool{}
 	for _, c := range ds.Children {
+		z.readLock()
 		clones, err := c.Clones()
+		z.readUnlock()
 		if err != nil {
 			return err
 		}
