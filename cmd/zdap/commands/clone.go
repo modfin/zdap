@@ -186,7 +186,7 @@ func ClaimResource(c *cli.Context) error {
 	ttl := c.Int64("ttl")
 	clone, err := cloneResource(c.Args().Slice(), zdap.ClaimArgs{
 		ClaimPooled: true,
-		Ttl:         ttl,
+		TtlSeconds:  ttl,
 	})
 	if err != nil {
 		return err
@@ -388,7 +388,7 @@ func AttachClone(c *cli.Context) error {
 		fmt.Print("Cloning ", resource, "...")
 		clone, err = cloneResource(c.Args().Slice(), zdap.ClaimArgs{
 			ClaimPooled: c.Bool("claim"),
-			Ttl:         c.Int64("ttl"),
+			TtlSeconds:  c.Int64("ttl"),
 		})
 		if err != nil {
 			return err

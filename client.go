@@ -19,7 +19,7 @@ type Client struct {
 
 type ClaimArgs struct {
 	ClaimPooled bool
-	Ttl         int64
+	TtlSeconds  int64
 }
 
 func NewClient(user, server string) *Client {
@@ -99,9 +99,9 @@ func (c Client) CloneSnap(resource string, snap time.Time, claimArgs ClaimArgs) 
 	if err != nil {
 		return nil, err
 	}
-	if claimArgs.ClaimPooled && claimArgs.Ttl != 0 {
+	if claimArgs.ClaimPooled && claimArgs.TtlSeconds != 0 {
 		q := req.URL.Query()
-		q.Add("ttl", strconv.FormatInt(claimArgs.Ttl, 10))
+		q.Add("ttl", strconv.FormatInt(claimArgs.TtlSeconds, 10))
 		req.URL.RawQuery = q.Encode()
 	}
 	res, err := http.DefaultClient.Do(req)
