@@ -142,8 +142,8 @@ func (c *ClonePool) readPooled(dss *zfs.Dataset) ([]zdap.PublicClone, error) {
 }
 
 func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []zdap.PublicClone {
-	c.claimLock.Lock()
-	defer c.claimLock.Unlock()
+	//c.claimLock.Lock()
+	//defer c.claimLock.Unlock()
 
 	t := time.Now()
 	expired := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
