@@ -96,6 +96,7 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 		return err
 		//return fmt.Errorf("could not open ds: %w", err)
 	}
+	defer dataset.Close()
 	z.writeLock()
 	err = dataset.UnmountAll(0)
 	z.writeUnlock()

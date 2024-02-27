@@ -16,4 +16,3 @@ clone_pool:
   min_clones: 8
   max_clones: 16
   claim_max_timeout_seconds: 300
-  claim_taints_clone: true
