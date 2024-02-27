@@ -108,7 +108,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 
 	networkConfig := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			net.Name: &network.EndpointSettings{},
+			net.Name: {},
 		},
 	}
 
@@ -245,9 +245,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	if matchingClones != nil && len(matchingClones) > 0 {
 		fmt.Printf("Setting healthy for %s\n", cloneName)
 		m := matchingClones[0]
-		z.WriteLock()
-		err := m.Dataset.SetUserProperty(zfs.PropHealthy, "true")
-		z.WriteUnlock()
+		err := z.SetUserProperty(*m.Dataset, zfs.PropHealthy, "true")
 		if err != nil {
 			fmt.Printf("Error when setting healthy prop %s", err)
 			return nil, err

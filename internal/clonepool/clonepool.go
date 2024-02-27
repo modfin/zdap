@@ -182,10 +182,7 @@ func (c *ClonePool) Expire(claimId string) error {
 		return fmt.Errorf("found no matching clones")
 	}
 
-	c.cloneContext.Z.WriteLock()
-	err = match[0].Dataset.SetUserProperty(zfs.PropExpires, time.Now().Format(zfs.TimestampFormat))
-	c.cloneContext.Z.WriteUnlock()
-	return err
+	return c.cloneContext.Z.SetUserProperty(*match[0].Dataset, zfs.PropExpires, time.Now().Format(zfs.TimestampFormat))
 }
 
 func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
@@ -222,9 +219,7 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 		timeout = maxTimeout
 	}
 	expires := time.Now().Add(timeout)
-	c.cloneContext.Z.WriteLock()
-	err = claim.Dataset.SetUserProperty(zfs.PropExpires, expires.Format(zfs.TimestampFormat))
-	c.cloneContext.Z.WriteUnlock()
+	err = c.cloneContext.Z.SetUserProperty(*claim.Dataset, zfs.PropExpires, expires.Format(zfs.TimestampFormat))
 	if err != nil {
 		return zdap.PublicClone{}, err
 	}

@@ -59,8 +59,8 @@ func (z *ZFS) GetDatasetSnapNameAt(name string, at time.Time) string {
 }
 
 func (z *ZFS) CreateDataset(name string, resource string, creation time.Time) (string, error) {
-	z.WriteLock()
-	defer z.WriteUnlock()
+	z.writeLock()
+	defer z.writeUnlock()
 
 	ds, err := zfs.DatasetCreate(fmt.Sprintf("%s/%s", z.pool, name), zfs.DatasetTypeFilesystem, nil)
 	if err != nil {
@@ -153,14 +153,14 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 }
 
 func (z *ZFS) Destroy(name string) error {
-	z.WriteLock()
-	defer z.WriteUnlock()
+	z.writeLock()
+	defer z.writeUnlock()
 	return z.destroyDatasetRec(fmt.Sprintf("%s/%s", z.pool, name))
 }
 
 func (z *ZFS) DestroyAll() error {
-	z.WriteLock()
-	defer z.WriteUnlock()
+	z.writeLock()
+	defer z.writeUnlock()
 
 	ds, err := zfs.DatasetOpen(z.pool)
 
@@ -389,8 +389,8 @@ func (z *ZFS) listReg(dss *Dataset, reg *regexp.Regexp) ([]string, error) {
 }
 
 func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error {
-	z.WriteLock()
-	defer z.WriteUnlock()
+	z.writeLock()
+	defer z.writeUnlock()
 
 	ds, err := zfs.DatasetSnapshot(fmt.Sprintf("%s/%s@snap", z.pool, name), false, nil)
 	if err != nil {
@@ -410,8 +410,8 @@ func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error
 }
 
 func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool) (string, string, error) {
-	z.WriteLock()
-	defer z.WriteUnlock()
+	z.writeLock()
+	defer z.writeUnlock()
 
 	parts := strings.Split(snapName, "@")
 	if len(parts) != 2 {
@@ -485,6 +485,13 @@ func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool) (
 	return cloneName, path, err
 }
 
+func (z *ZFS) SetUserProperty(dataset zfs.Dataset, prop string, value string) error {
+	z.writeLock()
+	defer z.writeUnlock()
+
+	return dataset.SetUserProperty(prop, value)
+}
+
 func (z *ZFS) UsedSpace(dss *Dataset) (uint64, error) {
 	//p, err := zfs.PoolOpen(z.pool)
 	p, err := dss.Pool()
@@ -526,8 +533,8 @@ func (z *ZFS) TotalSpace(dss *Dataset) (uint64, error) {
 }
 
 func (z *ZFS) Open() (*Dataset, error) {
-	z.ReadLock()
-	defer z.ReadUnlock()
+	z.readLock()
+	defer z.readUnlock()
 	dss, err := zfs.DatasetOpen(z.pool)
 	if err != nil {
 		return nil, err
@@ -535,18 +542,18 @@ func (z *ZFS) Open() (*Dataset, error) {
 	return &Dataset{Dataset: &dss}, nil
 }
 
-func (z *ZFS) ReadLock() {
+func (z *ZFS) readLock() {
 	z.poolLock.RLock()
 }
 
-func (z *ZFS) ReadUnlock() {
+func (z *ZFS) readUnlock() {
 	z.poolLock.RUnlock()
 }
 
-func (z *ZFS) WriteLock() {
+func (z *ZFS) writeLock() {
 	z.poolLock.Lock()
 }
 
-func (z *ZFS) WriteUnlock() {
+func (z *ZFS) writeUnlock() {
 	z.poolLock.Unlock()
 }
