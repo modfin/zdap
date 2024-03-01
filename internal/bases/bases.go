@@ -9,7 +9,6 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/modfin/zdap/internal"
-	"github.com/modfin/zdap/internal/clonepool"
 	"github.com/modfin/zdap/internal/zfs"
 	"os"
 	"os/exec"
@@ -21,7 +20,11 @@ import (
 
 var baseCreationMutex sync.Mutex
 
-func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, clonepool *clonepool.ClonePool) error {
+type ClonePoolInterface interface {
+	TriggerGC()
+}
+
+func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, clonepool ClonePoolInterface) error {
 	baseCreationMutex.Lock()
 	defer baseCreationMutex.Unlock()
 
