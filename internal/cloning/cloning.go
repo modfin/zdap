@@ -18,7 +18,6 @@ import (
 	"github.com/modfin/zdap/internal/zfs"
 	"regexp"
 	"sort"
-	"sync"
 	"time"
 )
 
@@ -95,12 +94,7 @@ func (c *CloneContext) GetLatestResourceSnap(dss *zfs.Dataset, resourceName stri
 	return snaps[0], nil
 }
 
-var cloneCreationMutex = sync.Mutex{}
-
 func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, clonePooled bool) (*zdap.PublicClone, error) {
-	cloneCreationMutex.Lock()
-	defer cloneCreationMutex.Unlock()
-
 	net, err := bases.EnsureNetwork(docker)
 	if err != nil {
 		return nil, err

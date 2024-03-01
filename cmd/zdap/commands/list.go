@@ -83,7 +83,7 @@ func ListResources(c *cli.Context) error {
 			fmt.Printf("%s %s", r1, resource.Name)
 			if resource.ClonePool.MinClones > 0 {
 				fmt.Printf(
-					"(pool: min_clones=%d, max_clones=%d, max_lease_time=%ds, default_lease_time=%ds)",
+					" (pool: min_clones=%d, max_clones=%d, max_lease_time=%ds, default_lease_time=%ds)",
 					resource.ClonePool.MinClones,
 					resource.ClonePool.MaxClones,
 					resource.ClonePool.ClaimMaxTimeoutSeconds,

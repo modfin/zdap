@@ -2,21 +2,15 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
 	"github.com/modfin/henry/slicez"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/bases"
 	"github.com/modfin/zdap/internal/clonepool"
 	"github.com/modfin/zdap/internal/cloning"
-	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 	"github.com/patrickmn/go-cache"
 	"github.com/robfig/cron/v3"
@@ -331,135 +325,6 @@ func (c *Core) CloneResourceHandlePooling(dss *zfs.Dataset, owner string, resour
 	return cc.CloneResourceHandlePooling(dss, owner, resourceName, at, pooled)
 }
 
-func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, connectionPooled bool) (*zdap.PublicClone, error) {
-	bases.CloneCreationMutex.Lock()
-	defer bases.CloneCreationMutex.Unlock()
-
-	net, err := bases.EnsureNetwork(docker)
-	if err != nil {
-		return nil, err
-	}
-
-	networkConfig := &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{
-			net.Name: &network.EndpointSettings{},
-		},
-	}
-
-	snaps, err := z.ListSnaps(dss)
-	if err != nil {
-		return nil, err
-	}
-
-	var candidate string
-	for _, s := range snaps {
-		if s.Name == snap {
-			candidate = s.Name
-		}
-	}
-	if len(candidate) == 0 {
-		return nil, errors.New("could not find snap")
-	}
-
-	fmt.Println("Creating clone from", candidate)
-
-	port, err := utils.GetFreePort()
-	cloneName, path, err := z.CloneDataset(owner, candidate, port, connectionPooled)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println(" - clone name", cloneName)
-
-	resp, err := docker.ContainerCreate(context.Background(), &container.Config{
-		Image:      r.Docker.Image,
-		Env:        r.Docker.Env,
-		Tty:        false,
-		Labels:     map[string]string{"owner": owner},
-		Domainname: cloneName,
-		ExposedPorts: nat.PortSet{
-			nat.Port(fmt.Sprintf("%d/tcp", r.Docker.Port)): struct{}{},
-		},
-	}, &container.HostConfig{
-		RestartPolicy: container.RestartPolicy{
-			Name:              "unless-stopped",
-			MaximumRetryCount: 0,
-		},
-		Mounts: []mount.Mount{
-			{
-				Type:   mount.TypeBind,
-				Source: path,
-				Target: r.Docker.Volume,
-			},
-		},
-	}, networkConfig, nil, cloneName)
-	if err != nil {
-		return nil, err
-	}
-	err = docker.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	fmt.Println(" - db container name", cloneName)
-
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err = docker.ContainerCreate(context.Background(), &container.Config{
-		Image: "crholm/zdap-proxy:latest",
-		Env: []string{
-			fmt.Sprintf("LISTEN_PORT=%d", port),
-			fmt.Sprintf("TARGET_ADDRESS=%s:%d", cloneName, r.Docker.Port),
-		},
-		ExposedPorts: nat.PortSet{
-			nat.Port(fmt.Sprintf("%d/tcp", port)): struct{}{},
-			nat.Port(fmt.Sprintf("%d/udp", port)): struct{}{},
-		},
-		Labels:     map[string]string{"owner": owner},
-		Domainname: fmt.Sprintf("%s-proxy", cloneName),
-	}, &container.HostConfig{
-		RestartPolicy: container.RestartPolicy{
-			Name:              "unless-stopped",
-			MaximumRetryCount: 0,
-		},
-		PortBindings: nat.PortMap{
-			nat.Port(fmt.Sprintf("%d/tcp", port)): []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d/tcp", port)}},
-			nat.Port(fmt.Sprintf("%d/udp", port)): []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d/udp", port)}},
-		},
-	}, networkConfig, nil, fmt.Sprintf("%s-proxy", cloneName))
-	if err != nil {
-		return nil, err
-	}
-	err = docker.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{})
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println(" - db proxy name", fmt.Sprintf("tcp://%s-proxy:%d", cloneName, port))
-
-	dates := zfs.TimeReg.FindAll([]byte(cloneName), -1)
-	if len(dates) != 2 {
-		return nil, fmt.Errorf("did not find 2 snap dates in clone name, got %d", len(dates))
-	}
-	snappedAt, err := time.Parse(zfs.TimestampFormat, string(dates[0]))
-	if err != nil {
-		return nil, err
-	}
-	createdAt, err := time.Parse(zfs.TimestampFormat, string(dates[1]))
-	if err != nil {
-		return nil, err
-	}
-
-	return &zdap.PublicClone{
-		Name:      cloneName,
-		Resource:  r.Name,
-		SnappedAt: snappedAt,
-		CreatedAt: createdAt,
-		Owner:     owner,
-		Port:      port,
-	}, nil
-}
-
 func (c *Core) DestroyClone(dss *zfs.Dataset, cloneName string) error {
 	clones, err := c.z.ListClones(dss)
 	if err != nil {
@@ -473,7 +338,6 @@ func (c *Core) DestroyClone(dss *zfs.Dataset, cloneName string) error {
 		}
 	}
 	if !contain {
-		fmt.Println("not contain")
 		return fmt.Errorf("clone, %s, does not exist", cloneName)
 	}
 
