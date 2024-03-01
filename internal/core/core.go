@@ -59,10 +59,25 @@ func (c *Core) Start() error {
 	for _, r := range c.resources {
 		r := r
 
+		var clonePool *clonepool.ClonePool
+		if r.ClonePool.MinClones != 0 {
+			cloneContext := cloning.CloneContext{
+				Resource:       &r,
+				Docker:         c.docker,
+				Z:              c.z,
+				ConfigDir:      c.configDir,
+				NetworkAddress: c.networkAddress,
+				ApiPort:        c.apiPort,
+			}
+			clonePool = clonepool.NewClonePool(r, &cloneContext)
+			clonePool.Start()
+			c.clonePools[r.Name] = clonePool
+		}
+
 		if r.Cron != "" {
 			id, err := c.cron.AddFunc(r.Cron, func() {
 				fmt.Println("[CRON] Starting cron job to create", r.Name, "base resource")
-				err := bases.CreateBaseAndSnap(c.configDir, &r, c.docker, c.z)
+				err := bases.CreateBaseAndSnap(c.configDir, &r, c.docker, c.z, clonePool)
 				if err != nil {
 					fmt.Println("[CRON] Error: could not run cronjob to create base,", err)
 				}
@@ -73,19 +88,6 @@ func (c *Core) Start() error {
 			ids = append(ids, id)
 		}
 
-		if r.ClonePool.MinClones != 0 {
-			cloneContext := cloning.CloneContext{
-				Resource:       &r,
-				Docker:         c.docker,
-				Z:              c.z,
-				ConfigDir:      c.configDir,
-				NetworkAddress: c.networkAddress,
-				ApiPort:        c.apiPort,
-			}
-			clonePool := clonepool.NewClonePool(r, &cloneContext)
-			clonePool.Start()
-			c.clonePools[r.Name] = &clonePool
-		}
 	}
 	c.cron.Start()
 	for i, r := range c.resources {
@@ -296,7 +298,7 @@ func (c *Core) CreateBaseAndSnap(resourceName string, useExistingBase bool) erro
 		fmt.Printf("snapping %s at %s\n", latestBase, t.Format(zfs.TimestampFormat))
 		return c.z.SnapDataset(latestBase, r.Name, t)
 	}
-	return bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z)
+	return bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z, c.clonePools[resourceName])
 }
 
 func (c *Core) CloneResource(dss *zfs.Dataset, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {

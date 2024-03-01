@@ -17,19 +17,30 @@ type ClonePool struct {
 	cloneContext    *cloning.CloneContext
 	ClonesAvailable int
 	claimLock       sync.Mutex
+	gc              chan struct{}
 }
 
-func NewClonePool(resource internal.Resource, cloneContext *cloning.CloneContext) ClonePool {
-	return ClonePool{resource: resource, cloneContext: cloneContext}
+func NewClonePool(resource internal.Resource, cloneContext *cloning.CloneContext) *ClonePool {
+	return &ClonePool{resource: resource, cloneContext: cloneContext, gc: make(chan struct{}, 1)}
 }
 
 func (c *ClonePool) Start() {
 	go func() {
 		for {
-			time.Sleep(time.Second)
+			select {
+			case <-time.After(time.Hour):
+			case <-c.gc:
+			}
 			c.action()
 		}
 	}()
+}
+
+func (c *ClonePool) TriggerGC() {
+	select {
+	case c.gc <- struct{}{}:
+	case <-time.After(time.Millisecond):
+	}
 }
 
 func (c *ClonePool) action() {
@@ -182,7 +193,12 @@ func (c *ClonePool) expire(dss *zfs.Dataset, claimId string) error {
 		return fmt.Errorf("found no matching clones")
 	}
 
-	return c.cloneContext.Z.SetUserProperty(*match[0].Dataset, zfs.PropExpires, time.Now().Format(zfs.TimestampFormat))
+	err = c.cloneContext.Z.SetUserProperty(*match[0].Dataset, zfs.PropExpires, time.Now().Format(zfs.TimestampFormat))
+	if err != nil {
+		return err
+	}
+	c.TriggerGC()
+	return err
 }
 
 func (c *ClonePool) Claim(timeout time.Duration, owner string) (zdap.PublicClone, error) {
@@ -225,6 +241,7 @@ func (c *ClonePool) Claim(timeout time.Duration, owner string) (zdap.PublicClone
 	}
 	expires := time.Now().Add(timeout)
 	err = c.cloneContext.Z.SetUserProperty(*claim.Dataset, zfs.PropExpires, expires.Format(zfs.TimestampFormat))
+	c.triggerGCAfterDelay(timeout)
 	if err != nil {
 		return zdap.PublicClone{}, err
 	}
@@ -236,7 +253,17 @@ func (c *ClonePool) Claim(timeout time.Duration, owner string) (zdap.PublicClone
 
 	claim.APIPort = c.cloneContext.ApiPort
 	claim.Server = c.cloneContext.NetworkAddress
+	c.TriggerGC()
 	return *claim, nil
+}
+
+func (c *ClonePool) triggerGCAfterDelay(delay time.Duration) {
+	timer := time.NewTimer(delay)
+	go func() {
+		<-timer.C
+		fmt.Println("Triggering GC after delay") // debug log will remove
+		c.TriggerGC()
+	}()
 }
 
 func (c *ClonePool) getPooledClone(dss *zfs.Dataset) (*zdap.PublicClone, error) {

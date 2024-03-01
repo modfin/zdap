@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/modfin/zdap/internal"
+	"github.com/modfin/zdap/internal/clonepool"
 	"github.com/modfin/zdap/internal/zfs"
 	"os"
 	"os/exec"
@@ -20,7 +21,7 @@ import (
 
 var baseCreationMutex sync.Mutex
 
-func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client.Client, z *zfs.ZFS) error {
+func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, clonepool *clonepool.ClonePool) error {
 	baseCreationMutex.Lock()
 	defer baseCreationMutex.Unlock()
 
@@ -120,7 +121,14 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 		return err
 	}
 
-	return z.SnapDataset(name, r.Name, t)
+	err = z.SnapDataset(name, r.Name, t)
+	if err != nil {
+		return err
+	}
+	if clonepool != nil {
+		clonepool.TriggerGC()
+	}
+	return err
 }
 
 const networkName = "zdap_proxy_net"
@@ -159,8 +167,6 @@ func EnsureNetwork(cli *client.Client) (*types.NetworkResource, error) {
 
 	return findNetwork(cli)
 }
-
-var CloneCreationMutex = sync.Mutex{}
 
 func DestroyClone(cloneName string, docker *client.Client, z *zfs.ZFS) error {
 
