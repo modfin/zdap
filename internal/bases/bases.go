@@ -101,7 +101,7 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 		return err
 	}
 
-	d := 10 // seconds
+	d := 60 // seconds
 	err = docker.ContainerStop(context.Background(), resp.ID, container.StopOptions{Timeout: &d})
 	if err != nil {
 		return err
