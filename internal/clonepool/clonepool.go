@@ -185,7 +185,7 @@ func (c *ClonePool) expire(dss *zfs.Dataset, claimId string) error {
 	return c.cloneContext.Z.SetUserProperty(*match[0].Dataset, zfs.PropExpires, time.Now().Format(zfs.TimestampFormat))
 }
 
-func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
+func (c *ClonePool) Claim(timeout time.Duration, owner string) (zdap.PublicClone, error) {
 	c.claimLock.Lock()
 	defer c.claimLock.Unlock()
 
@@ -229,6 +229,10 @@ func (c *ClonePool) Claim(timeout time.Duration) (zdap.PublicClone, error) {
 		return zdap.PublicClone{}, err
 	}
 	c.ClonesAvailable--
+	err = c.cloneContext.Z.SetUserProperty(*claim.Dataset, zfs.PropOwner, owner)
+	if err != nil {
+		return zdap.PublicClone{}, err
+	}
 
 	claim.APIPort = c.cloneContext.ApiPort
 	claim.Server = c.cloneContext.NetworkAddress
