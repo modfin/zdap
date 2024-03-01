@@ -261,7 +261,6 @@ func (c *ClonePool) triggerGCAfterDelay(delay time.Duration) {
 	timer := time.NewTimer(delay)
 	go func() {
 		<-timer.C
-		fmt.Println("Triggering GC after delay") // debug log will remove
 		c.TriggerGC()
 	}()
 }
