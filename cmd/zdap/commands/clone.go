@@ -158,6 +158,12 @@ func ExpireClaimedResource(c *cli.Context) error {
 
 	resource := args[0]
 	claimId := args[1]
+	var server *string
+	if strings.Contains(claimId, "@") {
+		splitStrings := strings.Split(claimId, "@")
+		server = &splitStrings[0]
+		claimId = splitStrings[1]
+	}
 
 	var err error
 
@@ -165,8 +171,12 @@ func ExpireClaimedResource(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-
-	servers := cfg.Servers
+	var servers []string
+	if server != nil {
+		servers = []string{*server}
+	} else {
+		servers = cfg.Servers
+	}
 
 	for _, s := range servers {
 		client := zdap.NewClient(cfg.User, s)
@@ -194,7 +204,7 @@ func ClaimResource(c *cli.Context) error {
 	b, err := json.Marshal(ClaimResult{
 		Server:  clone.Server,
 		Port:    clone.Port,
-		CloneId: clone.Name,
+		CloneId: fmt.Sprintf("%s:%d@%s", clone.Server, clone.APIPort, clone.Name),
 	})
 
 	fmt.Println(string(b))
