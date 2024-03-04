@@ -20,11 +20,7 @@ import (
 
 var baseCreationMutex sync.Mutex
 
-type ClonePoolInterface interface {
-	TriggerGC()
-}
-
-func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, clonepool ClonePoolInterface) error {
+func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, snapCompletedCallback func()) error {
 	baseCreationMutex.Lock()
 	defer baseCreationMutex.Unlock()
 
@@ -128,8 +124,8 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 	if err != nil {
 		return err
 	}
-	if clonepool != nil {
-		clonepool.TriggerGC()
+	if snapCompletedCallback != nil {
+		snapCompletedCallback()
 	}
 	return err
 }

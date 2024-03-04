@@ -77,7 +77,11 @@ func (c *Core) Start() error {
 		if r.Cron != "" {
 			id, err := c.cron.AddFunc(r.Cron, func() {
 				fmt.Println("[CRON] Starting cron job to create", r.Name, "base resource")
-				err := bases.CreateBaseAndSnap(c.configDir, &r, c.docker, c.z, clonePool)
+				err := bases.CreateBaseAndSnap(c.configDir, &r, c.docker, c.z, func() {
+					if clonePool != nil {
+						clonePool.TriggerGC()
+					}
+				})
 				if err != nil {
 					fmt.Println("[CRON] Error: could not run cronjob to create base,", err)
 				}
@@ -298,7 +302,12 @@ func (c *Core) CreateBaseAndSnap(resourceName string, useExistingBase bool) erro
 		fmt.Printf("snapping %s at %s\n", latestBase, t.Format(zfs.TimestampFormat))
 		return c.z.SnapDataset(latestBase, r.Name, t)
 	}
-	return bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z, c.clonePools[resourceName])
+	return bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z, func() {
+		clonePool := c.clonePools[resourceName]
+		if clonePool != nil {
+			clonePool.TriggerGC()
+		}
+	})
 }
 
 func (c *Core) CloneResource(dss *zfs.Dataset, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
