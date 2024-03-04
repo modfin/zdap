@@ -62,9 +62,9 @@ func findServerCandidate(resource string, user string, servers []string, favorPo
 		load := stat.Load15
 
 		sum := math.Log2(float64(disk) / float64(datasize.GB) / 100.0) // more disk is good
-		sum += math.Log2(float64(mem) / float64(datasize.GB))          // mode ram is good
+		sum += math.Log2(float64(mem) / float64(datasize.GB))          // more ram is good
 		if clones > 0 {
-			sum -= math.Log2(float64(clones)) // less clones is good
+			sum -= math.Log2(float64(clones)) // fewer clones is good
 		}
 		if load > 0 {
 			sum -= math.Log2(load) // load less than 1 is good

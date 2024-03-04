@@ -71,6 +71,7 @@ func (c *Core) Start() error {
 			}
 			clonePool = clonepool.NewClonePool(r, &cloneContext)
 			clonePool.Start()
+			clonePool.TriggerGC() // initial trigger needed to collect up-to-date stats
 			c.clonePools[r.Name] = clonePool
 		}
 
