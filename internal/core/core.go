@@ -405,7 +405,11 @@ func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
 	s.ResourceDetails = make(map[string]zdap.ServerResourceDetails)
 	for _, r := range c.resources {
 		s.Resources = append(s.Resources, r.Name)
-		available := c.clonePools[r.Name].ClonesAvailable
+		pool := c.clonePools[r.Name]
+		available := 0
+		if pool != nil {
+			available = pool.ClonesAvailable
+		}
 
 		s.ResourceDetails[r.Name] = zdap.ServerResourceDetails{
 			Name:                  r.Name,
