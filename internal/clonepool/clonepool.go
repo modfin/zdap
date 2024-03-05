@@ -258,9 +258,8 @@ func (c *ClonePool) Claim(timeout time.Duration, owner string) (zdap.PublicClone
 }
 
 func (c *ClonePool) triggerGCAfterDelay(delay time.Duration) {
-	timer := time.NewTimer(delay)
 	go func() {
-		<-timer.C
+		time.Sleep(delay)
 		c.TriggerGC()
 	}()
 }
