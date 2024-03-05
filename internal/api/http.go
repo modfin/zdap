@@ -3,19 +3,20 @@ package api
 import (
 	"errors"
 	"fmt"
-	"github.com/docker/docker/client"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/config"
 	"github.com/modfin/zdap/internal/core"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 	"net/http"
+	"strconv"
 	"time"
 )
 import "github.com/labstack/echo/v4"
 
-func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS) error {
+func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	e := echo.New()
 
 	e.Use(middleware.Logger())
@@ -40,7 +41,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		}
 		defer dss.Close()
 
-		res, err := getStatus(dss, c.Get("owner").(string), app)
+		res, err := getStatus(dss, app)
 		if err != nil {
 			return fmt.Errorf("could not retrive status, %w", err)
 		}
@@ -184,6 +185,7 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 		}
 		return c.JSON(http.StatusOK, clone)
 	})
+
 	e.POST("/resources/:resource/snaps/:createdAt", func(c echo.Context) error {
 		resource := c.Param("resource")
 		at, err := time.Parse(utils.TimestampFormat, c.Param("createdAt"))
@@ -218,6 +220,32 @@ func Start(cfg *config.Config, app *core.Core, docker *client.Client, z *zfs.ZFS
 			return err
 		}
 		return c.JSON(http.StatusOK, res)
+	})
+
+	e.POST("/resources/:resource/claim", func(c echo.Context) error {
+		resource := c.Param("resource")
+		timeoutStr := c.QueryParam("ttl")
+		timeout := internal.DefaultClaimTimeoutSeconds * time.Second
+		if timeoutStr != "" {
+			t, err := strconv.ParseInt(timeoutStr, 10, 64)
+			if err == nil {
+				timeout = time.Duration(t) * time.Second
+			}
+		}
+
+		clone, err := app.ClaimPooledClone(resource, timeout, c.Get("owner").(string))
+		if err != nil {
+			fmt.Println(err.Error())
+			return c.JSON(http.StatusInternalServerError, err)
+		}
+		return c.JSON(http.StatusOK, clone)
+	})
+
+	e.DELETE("/resources/:resource/claims/:claimId", func(c echo.Context) error {
+		resource := c.Param("resource")
+		claimId := c.Param("claimId")
+
+		return app.ExpirePooledClone(resource, claimId)
 	})
 
 	fmt.Println("== Loaded Resources ==")

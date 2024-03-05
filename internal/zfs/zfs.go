@@ -8,7 +8,9 @@ import (
 	"github.com/modfin/zdap/internal/utils"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,13 +26,18 @@ func NewZFS(pool string) *ZFS {
 }
 
 type ZFS struct {
-	pool string
+	pool     string
+	poolLock sync.RWMutex
 }
 
 const PropCreated = "zdap:created_at"
 const PropOwner = "zdap:owner"
 const PropResource = "zdap:resource"
 const PropSnappedAt = "zdap:snapped_at"
+const PropClonePooled = "zdap:clone_pooled"
+const PropPort = "zdap:port"
+const PropExpires = "zdap:expires_at"
+const PropHealthy = "zdap:healthy"
 
 const TimestampFormat = "2006-01-02T15.04.05"
 
@@ -52,6 +59,9 @@ func (z *ZFS) GetDatasetSnapNameAt(name string, at time.Time) string {
 }
 
 func (z *ZFS) CreateDataset(name string, resource string, creation time.Time) (string, error) {
+	z.writeLock()
+	defer z.writeUnlock()
+
 	ds, err := zfs.DatasetCreate(fmt.Sprintf("%s/%s", z.pool, name), zfs.DatasetTypeFilesystem, nil)
 	if err != nil {
 		return "", err
@@ -79,18 +89,25 @@ func (z *ZFS) CreateDataset(name string, resource string, creation time.Time) (s
 }
 
 func (z *ZFS) destroyDatasetRec(path string) error {
+	z.readLock()
 	dataset, err := zfs.DatasetOpen(path)
+	z.readUnlock()
 	if err != nil {
-		return nil
+		return err
 		//return fmt.Errorf("could not open ds: %w", err)
 	}
 	defer dataset.Close()
+	z.writeLock()
 	err = dataset.UnmountAll(0)
+	z.writeUnlock()
+
 	if err != nil {
 		return fmt.Errorf("could not unmout all: %w", err)
 	}
 
+	z.readLock()
 	clones, err := dataset.Clones()
+	z.readUnlock()
 	if err != nil {
 		return fmt.Errorf("could not get clones: %w", err)
 	}
@@ -129,12 +146,16 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 	}
 
 	dataset.Close()
+	z.readLock()
 	dataset, err = zfs.DatasetOpen(path)
+	z.readUnlock()
 	if err != nil {
 		return fmt.Errorf("could not open ds2: %w", err)
 	}
 	fmt.Println(" - Destroying", path)
+	z.writeLock()
 	err = dataset.Destroy(false)
+	z.writeUnlock()
 	if err != nil {
 		return fmt.Errorf("could not destroy ds: %w", err)
 	}
@@ -147,7 +168,9 @@ func (z *ZFS) Destroy(name string) error {
 }
 
 func (z *ZFS) DestroyAll() error {
+	z.readLock()
 	ds, err := zfs.DatasetOpen(z.pool)
+	z.readUnlock()
 
 	if err != nil {
 		return err
@@ -169,7 +192,9 @@ func (z *ZFS) DestroyAll() error {
 
 	isClone := map[string]bool{}
 	for _, c := range ds.Children {
+		z.readLock()
 		clones, err := c.Clones()
+		z.readUnlock()
 		if err != nil {
 			return err
 		}
@@ -262,16 +287,46 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 		if err != nil {
 			return nil, err
 		}
+		clonePooled, err := d.GetUserProperty(PropClonePooled)
+		if err != nil {
+			return nil, err
+		}
+		healthy, err := d.GetUserProperty(PropHealthy)
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO for backwards compatibility, should be removed
+		port := 0
+		portString, err := d.GetUserProperty(PropPort)
+		if err == nil {
+			port, _ = strconv.Atoi(portString.Value)
+		}
+
+		expires, err := d.GetUserProperty(PropExpires)
+		if err != nil {
+			return nil, err
+		}
 
 		createdAt, _ := time.Parse(TimestampFormat, created.Value)
 		snappedAt, _ := time.Parse(TimestampFormat, snapped.Value)
+		expAt, err := time.Parse(TimestampFormat, expires.Value)
+		var expiresAt *time.Time
+		if err == nil {
+			expiresAt = &expAt
+		}
 
 		clones = append(clones, zdap.PublicClone{
-			Name:      c,
-			Resource:  resource.Value,
-			Owner:     owner.Value,
-			CreatedAt: createdAt,
-			SnappedAt: snappedAt,
+			Name:        c,
+			Resource:    resource.Value,
+			Owner:       owner.Value,
+			CreatedAt:   createdAt,
+			SnappedAt:   snappedAt,
+			ClonePooled: clonePooled.Value == "true",
+			Healthy:     healthy.Value == "true",
+			Dataset:     d,
+			ExpiresAt:   expiresAt,
+			Port:        port,
 		})
 	}
 
@@ -344,7 +399,10 @@ func (z *ZFS) listReg(dss *Dataset, reg *regexp.Regexp) ([]string, error) {
 }
 
 func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error {
-	ds, err := zfs.DatasetSnapshot(fmt.Sprintf("%s/%s@snap", z.pool, name), false, nil, nil)
+	z.writeLock()
+	defer z.writeUnlock()
+
+	ds, err := zfs.DatasetSnapshot(fmt.Sprintf("%s/%s@snap", z.pool, name), false, nil)
 	if err != nil {
 		return err
 	}
@@ -361,7 +419,9 @@ func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error
 	return err
 }
 
-func (z *ZFS) CloneDataset(owner, snapName string) (string, string, error) {
+func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool) (string, string, error) {
+	z.writeLock()
+	defer z.writeUnlock()
 
 	parts := strings.Split(snapName, "@")
 	if len(parts) != 2 {
@@ -414,6 +474,14 @@ func (z *ZFS) CloneDataset(owner, snapName string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	err = clone.SetUserProperty(PropClonePooled, strconv.FormatBool(clonePooled))
+	if err != nil {
+		return "", "", err
+	}
+	err = clone.SetUserProperty(PropPort, strconv.Itoa(port))
+	if err != nil {
+		return "", "", err
+	}
 
 	err = clone.Mount("", 0)
 	if err != nil {
@@ -425,6 +493,13 @@ func (z *ZFS) CloneDataset(owner, snapName string) (string, string, error) {
 	}
 
 	return cloneName, path, err
+}
+
+func (z *ZFS) SetUserProperty(dataset zfs.Dataset, prop string, value string) error {
+	z.writeLock()
+	defer z.writeUnlock()
+
+	return dataset.SetUserProperty(prop, value)
 }
 
 func (z *ZFS) UsedSpace(dss *Dataset) (uint64, error) {
@@ -468,9 +543,27 @@ func (z *ZFS) TotalSpace(dss *Dataset) (uint64, error) {
 }
 
 func (z *ZFS) Open() (*Dataset, error) {
+	z.readLock()
+	defer z.readUnlock()
 	dss, err := zfs.DatasetOpen(z.pool)
 	if err != nil {
 		return nil, err
 	}
 	return &Dataset{Dataset: &dss}, nil
+}
+
+func (z *ZFS) readLock() {
+	z.poolLock.RLock()
+}
+
+func (z *ZFS) readUnlock() {
+	z.poolLock.RUnlock()
+}
+
+func (z *ZFS) writeLock() {
+	z.poolLock.Lock()
+}
+
+func (z *ZFS) writeUnlock() {
+	z.poolLock.Unlock()
 }

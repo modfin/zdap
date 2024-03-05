@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -14,6 +15,11 @@ import (
 type Client struct {
 	user   string
 	server string
+}
+
+type ClaimArgs struct {
+	ClaimPooled bool
+	TtlSeconds  int64
 }
 
 func NewClient(user, server string) *Client {
@@ -80,15 +86,23 @@ func (c Client) GetResources() ([]PublicResource, error) {
 	return resources, err
 }
 
-func (c Client) CloneSnap(resource string, snap time.Time) (*PublicClone, error) {
+func (c Client) CloneSnap(resource string, snap time.Time, claimArgs ClaimArgs) (*PublicClone, error) {
 	var snapStr string
 	if !snap.IsZero() {
 		snapStr = snap.Format(utils.TimestampFormat)
 	}
 	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/snaps/%s", c.server, resource, snapStr), "/")
+	if claimArgs.ClaimPooled {
+		uri = fmt.Sprintf("http://%s/resources/%s/claim", c.server, resource)
+	}
 	req, err := c.newReq("POST", uri, nil)
 	if err != nil {
 		return nil, err
+	}
+	if claimArgs.ClaimPooled && claimArgs.TtlSeconds != 0 {
+		q := req.URL.Query()
+		q.Add("ttl", strconv.FormatInt(claimArgs.TtlSeconds, 10))
+		req.URL.RawQuery = q.Encode()
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -107,6 +121,22 @@ func (c Client) CloneSnap(resource string, snap time.Time) (*PublicClone, error)
 
 	err = json.Unmarshal(data, &clone)
 	return &clone, err
+}
+
+func (c Client) ExpireClaim(resource string, claimId string) error {
+	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/claims/%s", c.server, resource, claimId), "/")
+	req, err := c.newReq("DELETE", uri, nil)
+	if err != nil {
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	if res.StatusCode != 200 {
+		return fmt.Errorf("did not get status code 200, got %d", res.StatusCode)
+	}
+	return nil
 }
 
 func (c Client) DestroyClone(resource string, clone time.Time) error {

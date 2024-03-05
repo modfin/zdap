@@ -67,7 +67,7 @@ func main() {
 				Name:  "serve",
 				Usage: "starts http daemon for clients to interact with",
 				Action: func(c *cli.Context) error {
-					return api.Start(config.Get(), app, docker, z)
+					return api.Start(config.Get(), app, z)
 				},
 			},
 			{
@@ -77,12 +77,18 @@ func main() {
 					{
 						Name:  "snap",
 						Usage: "creates a snap of a resource",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{
+								Name:  "use-existing",
+								Usage: "only create snap if base exists",
+							},
+						},
 						Action: func(c *cli.Context) error {
 							if !c.Args().Present() {
 								return errors.New("resources to create snaps from must be provided")
 							}
 							for _, resource := range c.Args().Slice() {
-								err := app.CreateBaseAndSnap(resource)
+								err := app.CreateBaseAndSnap(resource, c.Bool("use-existing"))
 								if err != nil {
 									return err
 								}
@@ -156,7 +162,7 @@ func main() {
 						Name:  "resources",
 						Usage: "lists available resources / services that can be cloned",
 						Action: func(c *cli.Context) error {
-							fmt.Printf("== Resrources ==\n%s\n", strings.Join(app.GetResourcesNames(), "\n"))
+							fmt.Printf("== Resources ==\n%s\n", strings.Join(app.GetResourcesNames(), "\n"))
 							return nil
 						},
 					},
@@ -327,8 +333,8 @@ func destroyContainer(c types.Container, docker *client.Client) error {
 
 	if c.State == "running" {
 		fmt.Println("- Killing", name)
-		d := time.Millisecond
-		err := docker.ContainerStop(context.Background(), c.ID, &d)
+		d := 0
+		err := docker.ContainerStop(context.Background(), c.ID, container.StopOptions{Timeout: &d})
 		if err != nil {
 			return err
 		}

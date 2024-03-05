@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/modfin/henry/slicez"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
+	"github.com/modfin/zdap/internal/bases"
+	"github.com/modfin/zdap/internal/clonepool"
+	"github.com/modfin/zdap/internal/cloning"
 	"github.com/modfin/zdap/internal/zfs"
 	"github.com/patrickmn/go-cache"
 	"github.com/robfig/cron/v3"
@@ -32,6 +36,8 @@ type Core struct {
 	cron      *cron.Cron
 	resources []internal.Resource
 	ttlCache  *cache.Cache
+
+	clonePools map[string]*clonepool.ClonePool
 }
 
 func NewCore(configDir string, networkAddress string, apiPort int, docker *client.Client, z *zfs.ZFS) (*Core, error) {
@@ -49,21 +55,44 @@ func NewCore(configDir string, networkAddress string, apiPort int, docker *clien
 }
 func (c *Core) Start() error {
 	var ids []cron.EntryID
+	c.clonePools = make(map[string]*clonepool.ClonePool)
 	for _, r := range c.resources {
 		r := r
 
-		id, err := c.cron.AddFunc(r.Cron, func() {
-			fmt.Println("[CRON] Starting cron job to create", r.Name, "base resource")
-			err := createBaseAndSnap(c.configDir, &r, c.docker, c.z)
-			if err != nil {
-				fmt.Println("[CRON] Error: could not run cronjob to create base,", err)
+		var clonePool *clonepool.ClonePool
+		if r.ClonePool.MinClones != 0 {
+			cloneContext := cloning.CloneContext{
+				Resource:       &r,
+				Docker:         c.docker,
+				Z:              c.z,
+				ConfigDir:      c.configDir,
+				NetworkAddress: c.networkAddress,
+				ApiPort:        c.apiPort,
 			}
-		})
-		ids = append(ids, id)
-
-		if err != nil {
-			return fmt.Errorf("could not create cron for '%s', %w", r.Cron, err)
+			clonePool = clonepool.NewClonePool(r, &cloneContext)
+			clonePool.Start()
+			clonePool.TriggerGC() // initial trigger needed to collect up-to-date stats
+			c.clonePools[r.Name] = clonePool
 		}
+
+		if r.Cron != "" {
+			id, err := c.cron.AddFunc(r.Cron, func() {
+				fmt.Println("[CRON] Starting cron job to create", r.Name, "base resource")
+				err := bases.CreateBaseAndSnap(c.configDir, &r, c.docker, c.z, func() {
+					if clonePool != nil {
+						clonePool.TriggerGC()
+					}
+				})
+				if err != nil {
+					fmt.Println("[CRON] Error: could not run cronjob to create base,", err)
+				}
+			})
+			if err != nil {
+				return fmt.Errorf("could not create cron for '%s', %w", r.Cron, err)
+			}
+			ids = append(ids, id)
+		}
+
 	}
 	c.cron.Start()
 	for i, r := range c.resources {
@@ -134,6 +163,9 @@ func loadResources(dir string) ([]internal.Resource, error) {
 			return nil, err
 		}
 		//TODO ensure uniq resource names for r.Name
+		if r.ClonePool.ClaimMaxTimeoutSeconds == 0 {
+			r.ClonePool.ClaimMaxTimeoutSeconds = internal.DefaultClaimMaxTimeoutSeconds
+		}
 		resources = append(resources, r)
 	}
 
@@ -241,35 +273,71 @@ func (c *Core) getResource(resourceName string) *internal.Resource {
 	return nil
 }
 
-func (c *Core) CreateBaseAndSnap(resourceName string) error {
+func (c *Core) CreateBaseAndSnap(resourceName string, useExistingBase bool) error {
 	r := c.getResource(resourceName)
 	if r == nil {
 		return fmt.Errorf("could not find resource %s", resourceName)
 	}
-	return createBaseAndSnap(c.configDir, r, c.docker, c.z)
+	if useExistingBase {
+		dss, err := c.z.Open()
+		if err != nil {
+			return err
+		}
+		defer dss.Close()
+		bs, err := c.z.ListBases(dss)
+		if err != nil {
+			return err
+		}
+		resourceRx, err := regexp.Compile("^zdap-" + resourceName + "-base.*")
+		if err != nil {
+			return err
+		}
+		resourceBases := slicez.Filter(bs, func(b string) bool {
+			return resourceRx.MatchString(b)
+		})
+		if len(resourceBases) == 0 {
+			return fmt.Errorf("no bases for resource '%s' found", resourceName)
+		}
+		latestBase := slicez.Reverse(slicez.Sort(resourceBases))[0]
+		t := time.Now()
+		fmt.Printf("snapping %s at %s\n", latestBase, t.Format(zfs.TimestampFormat))
+		return c.z.SnapDataset(latestBase, r.Name, t)
+	}
+	return bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z, func() {
+		clonePool := c.clonePools[resourceName]
+		if clonePool != nil {
+			clonePool.TriggerGC()
+		}
+	})
 }
 
 func (c *Core) CloneResource(dss *zfs.Dataset, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
+	return c.CloneResourceHandlePooling(dss, owner, resourceName, at, false)
+}
+
+func (c *Core) CloneResourcePooled(dss *zfs.Dataset, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
+	return c.CloneResourceHandlePooling(dss, owner, resourceName, at, true)
+}
+
+func (c *Core) CloneResourceHandlePooling(dss *zfs.Dataset, owner string, resourceName string, at time.Time, pooled bool) (*zdap.PublicClone, error) {
 
 	r := c.getResource(resourceName)
 	if r == nil {
 		return nil, fmt.Errorf("could not find resource %s", resourceName)
 	}
-
-	snapName := c.z.GetDatasetSnapNameAt(resourceName, at)
-
-	clone, err := createClone(dss, owner, snapName, r, c.docker, c.z)
-	if err != nil {
-		return nil, err
+	cc := cloning.CloneContext{
+		Resource:       r,
+		Docker:         c.docker,
+		Z:              c.z,
+		ConfigDir:      c.configDir,
+		NetworkAddress: c.networkAddress,
+		ApiPort:        c.apiPort,
 	}
-	clone.Server = c.networkAddress
-	clone.APIPort = c.apiPort
 
-	return clone, nil
+	return cc.CloneResourceHandlePooling(dss, owner, resourceName, at, pooled)
 }
 
 func (c *Core) DestroyClone(dss *zfs.Dataset, cloneName string) error {
-
 	clones, err := c.z.ListClones(dss)
 	if err != nil {
 		return err
@@ -285,7 +353,7 @@ func (c *Core) DestroyClone(dss *zfs.Dataset, cloneName string) error {
 		return fmt.Errorf("clone, %s, does not exist", cloneName)
 	}
 
-	return destroyClone(cloneName, c.docker, c.z)
+	return bases.DestroyClone(cloneName, c.docker, c.z)
 }
 
 func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
@@ -334,9 +402,28 @@ func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
 	s.CachedMem = mem.Cached
 	s.TotalMem = mem.Total
 
+	s.ResourceDetails = make(map[string]zdap.ServerResourceDetails)
 	for _, r := range c.resources {
 		s.Resources = append(s.Resources, r.Name)
+		s.ResourceDetails[r.Name] = zdap.ServerResourceDetails{
+			Name:                  r.Name,
+			PooledClonesAvailable: c.clonePools[r.Name].ClonesAvailable,
+		}
 	}
 
 	return s, nil
+}
+
+func (c *Core) ClaimPooledClone(resource string, timeout time.Duration, owner string) (zdap.PublicClone, error) {
+	if pool, exists := c.clonePools[resource]; exists {
+		return pool.Claim(timeout, owner)
+	}
+	return zdap.PublicClone{}, fmt.Errorf("no clone pool exists for resource '%s'", resource)
+}
+
+func (c *Core) ExpirePooledClone(resource string, claimId string) error {
+	if pool, exists := c.clonePools[resource]; exists {
+		return pool.Expire(claimId)
+	}
+	return nil
 }

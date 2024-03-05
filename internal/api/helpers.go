@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func getStatus(dss *zfs.Dataset, owner string, app *core.Core) (zdap.ServerStatus, error) {
+func getStatus(dss *zfs.Dataset, app *core.Core) (zdap.ServerStatus, error) {
 	return app.ServerStatus(dss)
 }
 
@@ -20,8 +20,9 @@ func getResources(dss *zfs.Dataset, owner string, app *core.Core) ([]zdap.Public
 	var resources []zdap.PublicResource
 	for _, r := range app.GetResources() {
 		res := zdap.PublicResource{
-			Name:  r.Name,
-			Alias: r.Alias,
+			Name:      r.Name,
+			Alias:     r.Alias,
+			ClonePool: r.ClonePool,
 		}
 		res.Snaps, err = getSnaps(dss, owner, r.Name, app)
 		if err != nil {

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/c2h5oh/datasize"
@@ -36,7 +37,7 @@ func parsArgs(args []string) (servers []string, resource string, snap time.Time,
 	return
 }
 
-func findServerCandidate(resource string, user string, servers []string) (string, error) {
+func findServerCandidate(resource string, user string, servers []string, favorPooled bool) (string, error) {
 
 	var candidates []zdap.ServerStatus
 	for _, s := range servers {
@@ -61,9 +62,9 @@ func findServerCandidate(resource string, user string, servers []string) (string
 		load := stat.Load15
 
 		sum := math.Log2(float64(disk) / float64(datasize.GB) / 100.0) // more disk is good
-		sum += math.Log2(float64(mem) / float64(datasize.GB))          // mode ram is good
+		sum += math.Log2(float64(mem) / float64(datasize.GB))          // more ram is good
 		if clones > 0 {
-			sum -= math.Log2(float64(clones)) // less clones is good
+			sum -= math.Log2(float64(clones)) // fewer clones is good
 		}
 		if load > 0 {
 			sum -= math.Log2(load) // load less than 1 is good
@@ -74,6 +75,9 @@ func findServerCandidate(resource string, user string, servers []string) (string
 	sort.Slice(candidates, func(i, j int) bool {
 		a, b := candidates[i], candidates[j]
 
+		if favorPooled {
+			return a.ResourceDetails[resource].PooledClonesAvailable > b.ResourceDetails[resource].PooledClonesAvailable
+		}
 		return score(a) > score(b)
 	})
 
@@ -131,15 +135,83 @@ func CloneResourceCompletion(c *cli.Context) {
 }
 
 func CloneResource(c *cli.Context) error {
-	clone, err := cloneResource(c.Args().Slice())
+	clone, err := cloneResource(c.Args().Slice(), zdap.ClaimArgs{})
 	if err != nil {
 		return err
 	}
 	fmt.Println("Attach to project by running, run:")
-	fmt.Printf("zdap attach @%s %s %s\n", clone.Server, clone.Resource, clone.CreatedAt.Format(utils.TimestampFormat))
+	fmt.Printf("zdap attach --new=false @%s:%d %s %s\n", clone.Server, clone.Port, clone.Resource, clone.CreatedAt.Format(utils.TimestampFormat))
 	return nil
 }
-func cloneResource(args []string) (*zdap.PublicClone, error) {
+
+type ClaimResult struct {
+	Server  string `json:"server"`
+	Port    int    `json:"port"`
+	CloneId string `json:"clone_id"`
+}
+
+func ExpireClaimedResource(c *cli.Context) error {
+	args := c.Args().Slice()
+	if len(args) < 2 {
+		return errors.New("no claim specified")
+	}
+
+	resource := args[0]
+	claimId := args[1]
+	var server *string
+	if strings.Contains(claimId, "@") {
+		splitStrings := strings.Split(claimId, "@")
+		server = &splitStrings[0]
+		claimId = splitStrings[1]
+	}
+
+	var err error
+
+	cfg, err := getConfig()
+	if err != nil {
+		return err
+	}
+	var servers []string
+	if server != nil {
+		servers = []string{*server}
+	} else {
+		servers = cfg.Servers
+	}
+
+	for _, s := range servers {
+		client := zdap.NewClient(cfg.User, s)
+		err = client.ExpireClaim(resource, claimId)
+		if err != nil {
+			fmt.Println("[Err]", err)
+			err = nil
+			continue
+		}
+	}
+
+	return nil
+
+}
+
+func ClaimResource(c *cli.Context) error {
+	ttl := c.Int64("ttl")
+	clone, err := cloneResource(c.Args().Slice(), zdap.ClaimArgs{
+		ClaimPooled: true,
+		TtlSeconds:  ttl,
+	})
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(ClaimResult{
+		Server:  clone.Server,
+		Port:    clone.Port,
+		CloneId: fmt.Sprintf("%s:%d@%s", clone.Server, clone.APIPort, clone.Name),
+	})
+
+	fmt.Println(string(b))
+	return nil
+}
+
+func cloneResource(args []string, claimArgs zdap.ClaimArgs) (*zdap.PublicClone, error) {
 	var err error
 
 	cfg, err := getConfig()
@@ -161,13 +233,13 @@ func cloneResource(args []string) (*zdap.PublicClone, error) {
 		server = servers[0]
 	}
 	if len(servers) == 0 {
-		server, err = findServerCandidate(resource, cfg.User, cfg.Servers)
+		server, err = findServerCandidate(resource, cfg.User, cfg.Servers, claimArgs.ClaimPooled)
 		if err != nil {
 			return nil, fmt.Errorf("could not find a suitable server, %w", err)
 		}
 	}
 	client := zdap.NewClient(cfg.User, server)
-	clone, err := client.CloneSnap(resource, snap)
+	clone, err := client.CloneSnap(resource, snap, claimArgs)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +396,10 @@ func AttachClone(c *cli.Context) error {
 
 	if c.Bool("new") {
 		fmt.Print("Cloning ", resource, "...")
-		clone, err = cloneResource(c.Args().Slice())
+		clone, err = cloneResource(c.Args().Slice(), zdap.ClaimArgs{
+			ClaimPooled: c.Bool("claim"),
+			TtlSeconds:  c.Int64("ttl"),
+		})
 		if err != nil {
 			return err
 		}
