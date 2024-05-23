@@ -133,10 +133,6 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	}
 	fmt.Println(" - clone name", cloneName)
 
-	var shmSize int64 = 67108864
-	if r.Docker.Shm != 0 {
-		shmSize = r.Docker.Shm
-	}
 	resp, err := docker.ContainerCreate(context.Background(), &container.Config{
 		Image:      r.Docker.Image,
 		Env:        r.Docker.Env,
@@ -158,7 +154,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 			Name:              "unless-stopped",
 			MaximumRetryCount: 0,
 		},
-		ShmSize: shmSize,
+		ShmSize: r.Docker.Shm,
 		Mounts: []mount.Mount{
 			{
 				Type:   mount.TypeBind,
