@@ -41,6 +41,11 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 		return err
 	}
 
+	var shmSize int64 = 67108864
+	if r.Docker.Shm != 0 {
+		shmSize = r.Docker.Shm
+	}
+
 	ctx := context.Background()
 	resp, err := docker.ContainerCreate(ctx, &container.Config{
 		Image: r.Docker.Image,
@@ -58,6 +63,7 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 			Name:              "unless-stopped",
 			MaximumRetryCount: 0,
 		},
+		ShmSize: shmSize,
 		Mounts: []mount.Mount{
 			{
 				Type:   mount.TypeBind,
