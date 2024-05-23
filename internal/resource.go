@@ -16,6 +16,7 @@ type Docker struct {
 	Env         []string
 	Volume      string
 	Healthcheck string
+	Shm         int64
 }
 
 const DefaultClaimTimeoutSeconds = 300
