@@ -133,7 +133,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	}
 	fmt.Println(" - clone name", cloneName)
 
-	var shmSize int64 = 134217728
+	var shmSize int64 = 67108864
 	if r.Docker.Shm != 0 {
 		shmSize = r.Docker.Shm
 	}
