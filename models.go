@@ -35,7 +35,7 @@ type PublicClone struct {
 func (c *PublicClone) YAML(listenPort int) string {
 	return fmt.Sprintf(`
   %s:
-    image: crholm/zdap-proxy:latest
+    image: modfin/zdap-proxy:latest
     environment:
       - LISTEN_PORT=%d
       - TARGET_ADDRESS=%s:%d

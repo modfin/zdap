@@ -17,6 +17,8 @@ import (
 	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
+	"io"
+	"os"
 	"regexp"
 	"sort"
 	"time"
@@ -134,6 +136,17 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	}
 	fmt.Println(" - clone name", cloneName)
 
+	// Pull zdap-proxy image
+	proxyImageName := "modfin/zdap-proxy:latest"
+	reader, err := docker.ImagePull(context.Background(), proxyImageName, types.ImagePullOptions{})
+	if err != nil {
+		return nil, err
+	}
+	_, err = io.Copy(os.Stdout, reader)
+	if err != nil {
+		return nil, err
+	}
+
 	resp, err := docker.ContainerCreate(context.Background(), &container.Config{
 		Image:      r.Docker.Image,
 		Env:        r.Docker.Env,
@@ -174,12 +187,8 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 
 	fmt.Println(" - db container name", cloneName)
 
-	if err != nil {
-		return nil, err
-	}
-
 	resp, err = docker.ContainerCreate(context.Background(), &container.Config{
-		Image: "crholm/zdap-proxy:latest",
+		Image: proxyImageName,
 		Env: []string{
 			fmt.Sprintf("LISTEN_PORT=%d", port),
 			fmt.Sprintf("TARGET_ADDRESS=%s:%d", cloneName, r.Docker.Port),
