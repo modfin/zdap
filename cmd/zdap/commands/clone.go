@@ -439,7 +439,7 @@ func AttachClone(c *cli.Context) error {
 	}
 
 	container := compose.Container{}
-	container.Image = "crholm/zdap-proxy:latest"
+	container.Image = "modfin/zdap-proxy:latest"
 	container.Ports = ports
 	container.Environment = []string{
 		fmt.Sprintf("LISTEN_PORT=%d", port),
