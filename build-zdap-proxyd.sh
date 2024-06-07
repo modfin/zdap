@@ -1,7 +1,7 @@
 
 
 VERSION=$(date +%Y-%m-%dT%H.%M.%S)-$(git log -1 --pretty=format:"%h")
-IMAGE_NAME=crholm/zdap-proxy
+IMAGE_NAME=modfin/zdap-proxy
 
 BUILDER=$(docker buildx create) || exit 1
 
