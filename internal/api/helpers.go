@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal/core"
+	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 	"sort"
@@ -15,14 +16,16 @@ func getStatus(dss *zfs.Dataset, app *core.Core) (zdap.ServerStatus, error) {
 	return app.ServerStatus(dss)
 }
 
-func getResources(dss *zfs.Dataset, owner string, app *core.Core) ([]zdap.PublicResource, error) {
+func getResources(dss *zfs.Dataset, owner string, app *core.Core) ([]servermodel.ServerInternalResource, error) {
 	var err error
-	var resources []zdap.PublicResource
+	var resources []servermodel.ServerInternalResource
 	for _, r := range app.GetResources() {
-		res := zdap.PublicResource{
-			Name:      r.Name,
-			Alias:     r.Alias,
-			ClonePool: r.ClonePool,
+		res := servermodel.ServerInternalResource{
+			PublicResource: zdap.PublicResource{
+				Name:      r.Name,
+				Alias:     r.Alias,
+				ClonePool: r.ClonePool,
+			},
 		}
 		res.Snaps, err = getSnaps(dss, owner, r.Name, app)
 		if err != nil {
@@ -35,15 +38,17 @@ func getResources(dss *zfs.Dataset, owner string, app *core.Core) ([]zdap.Public
 	})
 	return resources, nil
 }
-func getResource(dss *zfs.Dataset, owner string, resource string, app *core.Core) (*zdap.PublicResource, error) {
+func getResource(dss *zfs.Dataset, owner string, resource string, app *core.Core) (*servermodel.ServerInternalResource, error) {
 	var err error
 	for _, r := range app.GetResources() {
 		if r.Name != resource {
 			continue
 		}
-		res := zdap.PublicResource{
-			Name:  r.Name,
-			Alias: r.Alias,
+		res := servermodel.ServerInternalResource{
+			PublicResource: zdap.PublicResource{
+				Name:  r.Name,
+				Alias: r.Alias,
+			},
 		}
 		res.Snaps, err = getSnaps(dss, owner, r.Name, app)
 		if err != nil {
@@ -53,7 +58,7 @@ func getResource(dss *zfs.Dataset, owner string, resource string, app *core.Core
 	}
 	return nil, fmt.Errorf("could not find resource")
 }
-func getSnap(dss *zfs.Dataset, owner string, createdAt time.Time, resource string, app *core.Core) (*zdap.PublicSnap, error) {
+func getSnap(dss *zfs.Dataset, owner string, createdAt time.Time, resource string, app *core.Core) (*servermodel.ServerInternalSnapshot, error) {
 	ss, err := app.GetResourceSnaps(dss, resource)
 	if err != nil {
 		return nil, err
@@ -67,12 +72,12 @@ func getSnap(dss *zfs.Dataset, owner string, createdAt time.Time, resource strin
 	}
 	return nil, fmt.Errorf("could not find snap %s@%s", resource, createdAt.Format(utils.TimestampFormat))
 }
-func getSnaps(dss *zfs.Dataset, owner string, resource string, app *core.Core) ([]zdap.PublicSnap, error) {
+func getSnaps(dss *zfs.Dataset, owner string, resource string, app *core.Core) ([]servermodel.ServerInternalSnapshot, error) {
 	ss, err := app.GetResourceSnaps(dss, resource)
 	if err != nil {
 		return nil, err
 	}
-	var snaps []zdap.PublicSnap
+	var snaps []servermodel.ServerInternalSnapshot
 	for _, t := range ss {
 		t.Clones, err = getClones(dss, owner, t.CreatedAt, resource, app)
 		if err != nil {
@@ -86,7 +91,7 @@ func getSnaps(dss *zfs.Dataset, owner string, resource string, app *core.Core) (
 	return snaps, nil
 }
 
-func getClone(dss *zfs.Dataset, owner string, clone time.Time, snap time.Time, resource string, app *core.Core) (*zdap.PublicClone, error) {
+func getClone(dss *zfs.Dataset, owner string, clone time.Time, snap time.Time, resource string, app *core.Core) (*servermodel.ServerInternalClone, error) {
 	cc, err := app.GetResourceClones(dss, resource)
 	if err != nil {
 		return nil, err
@@ -103,8 +108,8 @@ func getClone(dss *zfs.Dataset, owner string, clone time.Time, snap time.Time, r
 	return nil, fmt.Errorf("could not find clone %s@%s -> %s", resource, snap.Format(utils.TimestampFormat), clone.Format(utils.TimestampFormat))
 }
 
-func getClones(dss *zfs.Dataset, owner string, snap time.Time, resource string, app *core.Core) ([]zdap.PublicClone, error) {
-	var clones []zdap.PublicClone
+func getClones(dss *zfs.Dataset, owner string, snap time.Time, resource string, app *core.Core) ([]servermodel.ServerInternalClone, error) {
+	var clones []servermodel.ServerInternalClone
 	cc, err := app.GetResourceClones(dss, resource)
 	if err != nil {
 		return nil, err

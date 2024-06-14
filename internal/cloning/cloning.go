@@ -14,6 +14,7 @@ import (
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/bases"
+	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 	"regexp"
@@ -58,7 +59,7 @@ func (c *CloneContext) CloneResourceHandlePooling(dss *zfs.Dataset, owner string
 	return clone, nil
 }
 
-func (c *CloneContext) GetResourceSnaps(dss *zfs.Dataset, resourceName string) ([]zdap.PublicSnap, error) {
+func (c *CloneContext) GetResourceSnaps(dss *zfs.Dataset, resourceName string) ([]servermodel.ServerInternalSnapshot, error) {
 	snaps, err := c.Z.ListSnaps(dss)
 	if err != nil {
 		return nil, err
@@ -67,7 +68,7 @@ func (c *CloneContext) GetResourceSnaps(dss *zfs.Dataset, resourceName string) (
 	if err != nil {
 		return nil, err
 	}
-	var rsnap []zdap.PublicSnap
+	var rsnap []servermodel.ServerInternalSnapshot
 	for _, snap := range snaps {
 		if !snapReg.MatchString(snap.Name) {
 			continue
@@ -77,10 +78,10 @@ func (c *CloneContext) GetResourceSnaps(dss *zfs.Dataset, resourceName string) (
 	return rsnap, nil
 }
 
-func (c *CloneContext) GetLatestResourceSnap(dss *zfs.Dataset, resourceName string) (zdap.PublicSnap, error) {
+func (c *CloneContext) GetLatestResourceSnap(dss *zfs.Dataset, resourceName string) (servermodel.ServerInternalSnapshot, error) {
 	snaps, err := c.GetResourceSnaps(dss, resourceName)
 	if err != nil || snaps == nil {
-		return zdap.PublicSnap{}, err
+		return servermodel.ServerInternalSnapshot{}, err
 	}
 
 	sort.Slice(snaps, func(i, j int) bool {
@@ -88,7 +89,7 @@ func (c *CloneContext) GetLatestResourceSnap(dss *zfs.Dataset, resourceName stri
 	})
 
 	if len(snaps) == 0 {
-		return zdap.PublicSnap{}, fmt.Errorf("unable to find snap for %s", resourceName)
+		return servermodel.ServerInternalSnapshot{}, fmt.Errorf("unable to find snap for %s", resourceName)
 	}
 
 	return snaps[0], nil
@@ -232,7 +233,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		return nil, err
 	}
 
-	matchingClones := slicez.Filter(clones, func(c zdap.PublicClone) bool {
+	matchingClones := slicez.Filter(clones, func(c servermodel.ServerInternalClone) bool {
 		return c.Name == cloneName
 	})
 	if matchingClones != nil && len(matchingClones) > 0 {

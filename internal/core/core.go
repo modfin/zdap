@@ -11,6 +11,7 @@ import (
 	"github.com/modfin/zdap/internal/bases"
 	"github.com/modfin/zdap/internal/clonepool"
 	"github.com/modfin/zdap/internal/cloning"
+	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/zfs"
 	"github.com/patrickmn/go-cache"
 	"github.com/robfig/cron/v3"
@@ -218,12 +219,12 @@ func (c *Core) GetCloneContainers(cloneName string) ([]types.Container, error) {
 
 }
 
-func (c *Core) GetResourceClones(dss *zfs.Dataset, resourceName string) (map[time.Time][]zdap.PublicClone, error) {
+func (c *Core) GetResourceClones(dss *zfs.Dataset, resourceName string) (map[time.Time][]servermodel.ServerInternalClone, error) {
 	clones, err := c.z.ListClones(dss)
 	if err != nil {
 		return nil, err
 	}
-	var rclone = map[time.Time][]zdap.PublicClone{}
+	var rclone = map[time.Time][]servermodel.ServerInternalClone{}
 	for _, clone := range clones {
 		clone.Server = c.networkAddress
 		clone.APIPort = c.apiPort
@@ -245,7 +246,7 @@ func (c *Core) GetResourceClones(dss *zfs.Dataset, resourceName string) (map[tim
 	return rclone, nil
 }
 
-func (c *Core) GetResourceSnaps(dss *zfs.Dataset, resourceName string) ([]zdap.PublicSnap, error) {
+func (c *Core) GetResourceSnaps(dss *zfs.Dataset, resourceName string) ([]servermodel.ServerInternalSnapshot, error) {
 	snaps, err := c.z.ListSnaps(dss)
 	if err != nil {
 		return nil, err
@@ -254,7 +255,7 @@ func (c *Core) GetResourceSnaps(dss *zfs.Dataset, resourceName string) ([]zdap.P
 	if err != nil {
 		return nil, err
 	}
-	var rsnap []zdap.PublicSnap
+	var rsnap []servermodel.ServerInternalSnapshot
 	for _, snap := range snaps {
 		if !snapReg.MatchString(snap.Name) {
 			continue
@@ -419,11 +420,11 @@ func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
 	return s, nil
 }
 
-func (c *Core) ClaimPooledClone(resource string, timeout time.Duration, owner string) (zdap.PublicClone, error) {
+func (c *Core) ClaimPooledClone(resource string, timeout time.Duration, owner string) (servermodel.ServerInternalClone, error) {
 	if pool, exists := c.clonePools[resource]; exists {
 		return pool.Claim(timeout, owner)
 	}
-	return zdap.PublicClone{}, fmt.Errorf("no clone pool exists for resource '%s'", resource)
+	return servermodel.ServerInternalClone{}, fmt.Errorf("no clone pool exists for resource '%s'", resource)
 }
 
 func (c *Core) ExpirePooledClone(resource string, claimId string) error {

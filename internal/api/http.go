@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/config"
 	"github.com/modfin/zdap/internal/core"
+	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 	"net/http"
@@ -88,7 +88,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 			return err
 		}
 
-		var clones []zdap.PublicClone
+		var clones []servermodel.ServerInternalClone
 
 		for _, snap := range snaps {
 			clones = append(clones, snap.Clones...)

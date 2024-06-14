@@ -7,6 +7,7 @@ import (
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/cloning"
+	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/zfs"
 	"sync"
 	"time"
@@ -66,7 +67,7 @@ func (c *ClonePool) action() {
 	}
 
 	nonExpiredClones := c.pruneExpired(dss, allClones)
-	available := slicez.Filter(nonExpiredClones, func(clone zdap.PublicClone) bool {
+	available := slicez.Filter(nonExpiredClones, func(clone servermodel.ServerInternalClone) bool {
 		return clone.ExpiresAt == nil && clone.Healthy
 	})
 	c.claimLock.Lock()
@@ -107,7 +108,7 @@ func (c *ClonePool) expireClonesFromOldSnaps(dss *zfs.Dataset) error {
 		return err
 	}
 
-	slicez.Each(pooledClones, func(a zdap.PublicClone) {
+	slicez.Each(pooledClones, func(a servermodel.ServerInternalClone) {
 		if a.SnappedAt != latestSnap.CreatedAt {
 			err = c.expire(dss, a.Name)
 			if err != nil {
@@ -119,13 +120,13 @@ func (c *ClonePool) expireClonesFromOldSnaps(dss *zfs.Dataset) error {
 	return nil
 }
 
-func (c *ClonePool) getAvailableClones(dss *zfs.Dataset) ([]zdap.PublicClone, error) {
+func (c *ClonePool) getAvailableClones(dss *zfs.Dataset) ([]servermodel.ServerInternalClone, error) {
 	pooled, err := c.readPooled(dss)
 	if err != nil {
 		return nil, err
 	}
 
-	filtered := slicez.Filter(pooled, func(clone zdap.PublicClone) bool {
+	filtered := slicez.Filter(pooled, func(clone servermodel.ServerInternalClone) bool {
 		return clone.ExpiresAt == nil && clone.Healthy
 	})
 
@@ -142,19 +143,19 @@ func (c *ClonePool) addCloneToPool(dss *zfs.Dataset) (*zdap.PublicClone, error) 
 	return c.cloneContext.CloneResourcePooled(dss, "zdapd", c.resource.Name, snap.CreatedAt)
 }
 
-func (c *ClonePool) readPooled(dss *zfs.Dataset) ([]zdap.PublicClone, error) {
+func (c *ClonePool) readPooled(dss *zfs.Dataset) ([]servermodel.ServerInternalClone, error) {
 	clones, err := c.cloneContext.Z.ListClones(dss)
 	if err != nil {
 		return nil, fmt.Errorf("could not list clones")
 	}
-	return slicez.Filter(clones, func(clone zdap.PublicClone) bool {
+	return slicez.Filter(clones, func(clone servermodel.ServerInternalClone) bool {
 		return clone.ClonePooled && clone.Resource == c.resource.Name
 	}), nil
 }
 
-func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []zdap.PublicClone {
+func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []servermodel.ServerInternalClone) []servermodel.ServerInternalClone {
 	t := time.Now()
-	expired := slicez.Filter(clones, func(clone zdap.PublicClone) bool {
+	expired := slicez.Filter(clones, func(clone servermodel.ServerInternalClone) bool {
 		return clone.ExpiresAt != nil && clone.ExpiresAt.Before(t)
 	})
 
@@ -165,7 +166,7 @@ func (c *ClonePool) pruneExpired(dss *zfs.Dataset, clones []zdap.PublicClone) []
 		}
 	}
 
-	return slicez.Filter(clones, func(clone zdap.PublicClone) bool {
+	return slicez.Filter(clones, func(clone servermodel.ServerInternalClone) bool {
 		return clone.ExpiresAt == nil || !clone.ExpiresAt.Before(t)
 	})
 }
@@ -185,7 +186,7 @@ func (c *ClonePool) expire(dss *zfs.Dataset, claimId string) error {
 		return err
 	}
 
-	match := slicez.Filter(pooled, func(a zdap.PublicClone) bool {
+	match := slicez.Filter(pooled, func(a servermodel.ServerInternalClone) bool {
 		return a.Name == claimId
 	})
 
@@ -201,14 +202,14 @@ func (c *ClonePool) expire(dss *zfs.Dataset, claimId string) error {
 	return err
 }
 
-func (c *ClonePool) Claim(timeout time.Duration, owner string) (zdap.PublicClone, error) {
+func (c *ClonePool) Claim(timeout time.Duration, owner string) (servermodel.ServerInternalClone, error) {
 	c.claimLock.Lock()
 	defer c.claimLock.Unlock()
 
 	dss, err := c.cloneContext.Z.Open()
 	defer dss.Close()
 	if err != nil {
-		return zdap.PublicClone{}, err
+		return servermodel.ServerInternalClone{}, err
 	}
 	claim, err := c.getPooledClone(dss)
 	if err != nil {
@@ -218,21 +219,21 @@ func (c *ClonePool) Claim(timeout time.Duration, owner string) (zdap.PublicClone
 	if claim == nil {
 		err = c.addPooledClone(dss)
 		if err != nil {
-			return zdap.PublicClone{}, err
+			return servermodel.ServerInternalClone{}, err
 		}
 
 		// reset dataset and query new clones
 		updatedDss, err := c.cloneContext.Z.Open()
 		defer updatedDss.Close()
 		if err != nil {
-			return zdap.PublicClone{}, err
+			return servermodel.ServerInternalClone{}, err
 		}
 
 		claim, _ = c.getPooledClone(updatedDss)
 	}
 
 	if claim == nil {
-		return zdap.PublicClone{}, fmt.Errorf("could not find available clone %w", err)
+		return servermodel.ServerInternalClone{}, fmt.Errorf("could not find available clone %w", err)
 	}
 
 	maxTimeout := time.Duration(c.resource.ClonePool.ClaimMaxTimeoutSeconds) * time.Second
@@ -243,12 +244,12 @@ func (c *ClonePool) Claim(timeout time.Duration, owner string) (zdap.PublicClone
 	err = c.cloneContext.Z.SetUserProperty(*claim.Dataset, zfs.PropExpires, expires.Format(zfs.TimestampFormat))
 	c.triggerGCAfterDelay(timeout)
 	if err != nil {
-		return zdap.PublicClone{}, err
+		return servermodel.ServerInternalClone{}, err
 	}
 	c.ClonesAvailable--
 	err = c.cloneContext.Z.SetUserProperty(*claim.Dataset, zfs.PropOwner, owner)
 	if err != nil {
-		return zdap.PublicClone{}, err
+		return servermodel.ServerInternalClone{}, err
 	}
 
 	claim.APIPort = c.cloneContext.ApiPort
@@ -264,7 +265,7 @@ func (c *ClonePool) triggerGCAfterDelay(delay time.Duration) {
 	}()
 }
 
-func (c *ClonePool) getPooledClone(dss *zfs.Dataset) (*zdap.PublicClone, error) {
+func (c *ClonePool) getPooledClone(dss *zfs.Dataset) (*servermodel.ServerInternalClone, error) {
 	clones, err := c.getAvailableClones(dss)
 	if err != nil {
 		return nil, err

@@ -2,7 +2,6 @@ package zdap
 
 import (
 	"fmt"
-	zfs "github.com/bicomsystems/go-libzfs"
 	"github.com/modfin/zdap/internal"
 	"time"
 )
@@ -31,7 +30,6 @@ type PublicClone struct {
 	ClonePooled bool       `json:"clone_pooled"`
 	Healthy     bool       `json:"healthy"`
 	ExpiresAt   *time.Time `json:"expires_at"`
-	Dataset     *zfs.Dataset
 }
 
 func (c *PublicClone) YAML(listenPort int) string {
