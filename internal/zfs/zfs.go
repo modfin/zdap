@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/bicomsystems/go-libzfs"
 	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
 	"regexp"
 	"sort"
@@ -246,9 +247,9 @@ func (z *ZFS) List(dss *Dataset) ([]string, error) {
 	return list, nil
 }
 
-func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
+func (z *ZFS) ListClones(dss *Dataset) ([]servermodel.ServerInternalClone, error) {
 
-	var clones []zdap.PublicClone
+	var clones []servermodel.ServerInternalClone
 
 	cc, err := z.listReg(dss, cloneReg)
 	if err != nil {
@@ -316,17 +317,18 @@ func (z *ZFS) ListClones(dss *Dataset) ([]zdap.PublicClone, error) {
 			expiresAt = &expAt
 		}
 
-		clones = append(clones, zdap.PublicClone{
-			Name:        c,
-			Resource:    resource.Value,
-			Owner:       owner.Value,
-			CreatedAt:   createdAt,
-			SnappedAt:   snappedAt,
-			ClonePooled: clonePooled.Value == "true",
-			Healthy:     healthy.Value == "true",
-			Dataset:     d,
-			ExpiresAt:   expiresAt,
-			Port:        port,
+		clones = append(clones, servermodel.ServerInternalClone{
+			PublicClone: zdap.PublicClone{
+				Name:        c,
+				Resource:    resource.Value,
+				Owner:       owner.Value,
+				CreatedAt:   createdAt,
+				SnappedAt:   snappedAt,
+				ClonePooled: clonePooled.Value == "true",
+				Healthy:     healthy.Value == "true",
+				ExpiresAt:   expiresAt,
+				Port:        port},
+			Dataset: d,
 		})
 	}
 
@@ -336,13 +338,13 @@ func (z *ZFS) ListBases(dss *Dataset) ([]string, error) {
 	return z.listReg(dss, baseReg)
 }
 
-func (z *ZFS) ListSnaps(dss *Dataset) ([]zdap.PublicSnap, error) {
+func (z *ZFS) ListSnaps(dss *Dataset) ([]servermodel.ServerInternalSnapshot, error) {
 
 	sn, err := z.listReg(dss, snapReg)
 	if err != nil {
 		return nil, err
 	}
-	var snaps []zdap.PublicSnap
+	var snaps []servermodel.ServerInternalSnapshot
 
 	cds := map[string]*zfs.Dataset{}
 	for _, cd := range dss.Children {
@@ -373,10 +375,11 @@ func (z *ZFS) ListSnaps(dss *Dataset) ([]zdap.PublicSnap, error) {
 			return nil, err
 		}
 
-		snaps = append(snaps, zdap.PublicSnap{
-			Name:      s,
-			Resource:  resource.Value,
-			CreatedAt: createdAt,
+		snaps = append(snaps, servermodel.ServerInternalSnapshot{
+			PublicSnap: zdap.PublicSnap{
+				Name:      s,
+				Resource:  resource.Value,
+				CreatedAt: createdAt},
 		})
 	}
 
