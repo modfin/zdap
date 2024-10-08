@@ -347,7 +347,7 @@ func destroyContainer(c types.Container, docker *client.Client) error {
 		}
 	}
 	fmt.Println("- Removing", name)
-	return docker.ContainerRemove(context.Background(), c.ID, types.ContainerRemoveOptions{
+	return docker.ContainerRemove(context.Background(), c.ID, container.RemoveOptions{
 		Force: true,
 	})
 }
@@ -355,7 +355,7 @@ func destroyContainer(c types.Container, docker *client.Client) error {
 func destroyAll(docker *client.Client, z *zfs.ZFS) error {
 	fmt.Println("Destroying Containers")
 
-	cs, err := docker.ContainerList(context.Background(), types.ContainerListOptions{All: true})
+	cs, err := docker.ContainerList(context.Background(), container.ListOptions{All: true})
 	if err != nil {
 		return err
 	}
@@ -394,7 +394,7 @@ func destroyClones(docker *client.Client, z *zfs.ZFS) error {
 		isClone[c.Name] = true
 	}
 
-	cs, err := docker.ContainerList(context.Background(), types.ContainerListOptions{All: true})
+	cs, err := docker.ContainerList(context.Background(), container.ListOptions{All: true})
 	if err != nil {
 		return err
 	}
@@ -444,7 +444,7 @@ func destroyClone(clone string, docker *client.Client, z *zfs.ZFS) error {
 		return fmt.Errorf("could not find clone %s", clone)
 	}
 
-	cs, err := docker.ContainerList(context.Background(), types.ContainerListOptions{All: true})
+	cs, err := docker.ContainerList(context.Background(), container.ListOptions{All: true})
 	if err != nil {
 		return err
 	}

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -138,7 +138,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 
 	// Pull zdap-proxy image
 	proxyImageName := "modfin/zdap-proxy:latest"
-	reader, err := docker.ImagePull(context.Background(), proxyImageName, types.ImagePullOptions{})
+	reader, err := docker.ImagePull(context.Background(), proxyImageName, image.PullOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	if err != nil {
 		return nil, err
 	}
-	err = docker.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{})
+	err = docker.ContainerStart(context.Background(), resp.ID, container.StartOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +212,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	if err != nil {
 		return nil, err
 	}
-	err = docker.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{})
+	err = docker.ContainerStart(context.Background(), resp.ID, container.StartOptions{})
 	if err != nil {
 		return nil, err
 	}
