@@ -71,7 +71,7 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 		return err
 	}
 
-	err = docker.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
+	err = docker.ContainerStart(ctx, resp.ID, container.StartOptions{})
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 		}
 	}
 
-	err = docker.ContainerRemove(context.Background(), resp.ID, types.ContainerRemoveOptions{Force: true})
+	err = docker.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true})
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func DestroyClone(cloneName string, docker *client.Client, z *zfs.ZFS) error {
 
 	fmt.Println("Destroying clone", cloneName)
 
-	cs, err := docker.ContainerList(context.Background(), types.ContainerListOptions{All: true})
+	cs, err := docker.ContainerList(context.Background(), container.ListOptions{All: true})
 	if err != nil {
 		return err
 	}
@@ -197,7 +197,7 @@ func DestroyClone(cloneName string, docker *client.Client, z *zfs.ZFS) error {
 					}
 				}
 				fmt.Println(" - Removing", name)
-				err = docker.ContainerRemove(context.Background(), c.ID, types.ContainerRemoveOptions{
+				err = docker.ContainerRemove(context.Background(), c.ID, container.RemoveOptions{
 					Force: true,
 				})
 				if err != nil {
