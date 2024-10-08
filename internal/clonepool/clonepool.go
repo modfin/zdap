@@ -108,7 +108,7 @@ func (c *ClonePool) expireClonesFromOldSnaps(dss *zfs.Dataset) error {
 		return err
 	}
 
-	slicez.Each(pooledClones, func(a servermodel.ServerInternalClone) {
+	slicez.ForEach(pooledClones, func(a servermodel.ServerInternalClone) {
 		if a.SnappedAt != latestSnap.CreatedAt {
 			err = c.expire(dss, a.Name)
 			if err != nil {
