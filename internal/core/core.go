@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/modfin/henry/slicez"
 	"github.com/modfin/zdap"
@@ -197,7 +198,7 @@ func (c *Core) GetCloneContainers(cloneName string) ([]types.Container, error) {
 
 	cons, found := c.ttlCache.Get("current_containers")
 	if !found {
-		containers, err := c.docker.ContainerList(context.Background(), types.ContainerListOptions{})
+		containers, err := c.docker.ContainerList(context.Background(), container.ListOptions{})
 		if err != nil {
 			return nil, err
 		}
