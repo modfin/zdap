@@ -47,11 +47,11 @@ func (c *ClonePool) TriggerGC() {
 func (c *ClonePool) action() {
 
 	dss, err := c.cloneContext.Z.Open()
-	defer dss.Close()
 	if err != nil {
 		fmt.Printf("error trying to open z, error: %s\n", err.Error())
 		return
 	}
+	defer dss.Close()
 
 	allClones, err := c.readPooled(dss)
 	if err != nil {
@@ -207,10 +207,10 @@ func (c *ClonePool) Claim(timeout time.Duration, owner string) (servermodel.Serv
 	defer c.claimLock.Unlock()
 
 	dss, err := c.cloneContext.Z.Open()
-	defer dss.Close()
 	if err != nil {
 		return servermodel.ServerInternalClone{}, err
 	}
+	defer dss.Close()
 	claim, err := c.getPooledClone(dss)
 	if err != nil {
 		fmt.Printf("Failed to get pooled clone, will attempt to add one: %s\n", err.Error())
@@ -224,10 +224,10 @@ func (c *ClonePool) Claim(timeout time.Duration, owner string) (servermodel.Serv
 
 		// reset dataset and query new clones
 		updatedDss, err := c.cloneContext.Z.Open()
-		defer updatedDss.Close()
 		if err != nil {
 			return servermodel.ServerInternalClone{}, err
 		}
+		defer updatedDss.Close()
 
 		claim, _ = c.getPooledClone(updatedDss)
 	}

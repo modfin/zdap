@@ -3,6 +3,11 @@ package api
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/config"
@@ -10,11 +15,7 @@ import (
 	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
-	"net/http"
-	"strconv"
-	"time"
 )
-import "github.com/labstack/echo/v4"
 
 func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	e := echo.New()
@@ -139,6 +140,9 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 			for _, clone := range snap.Clones {
 				if clone.CreatedAt.Equal(at) {
 					err = app.DestroyClone(dss, clone.Name)
+					if err != nil {
+						return err
+					}
 					return c.NoContent(http.StatusOK)
 				}
 			}
@@ -189,6 +193,9 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	e.POST("/resources/:resource/snaps/:createdAt", func(c echo.Context) error {
 		resource := c.Param("resource")
 		at, err := time.Parse(utils.TimestampFormat, c.Param("createdAt"))
+		if err != nil {
+			return err
+		}
 
 		dss, err := z.Open()
 		if err != nil {

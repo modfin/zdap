@@ -4,18 +4,19 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/client"
-	"github.com/modfin/zdap/internal"
-	"github.com/modfin/zdap/internal/zfs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/client"
+	"github.com/modfin/zdap/internal"
+	"github.com/modfin/zdap/internal/zfs"
 )
 
 var baseCreationMutex sync.Mutex
@@ -36,16 +37,18 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 	t := time.Now()
 	name := z.NewDatasetBaseName(r.Name, t)
 
-	path, err := z.CreateDataset(name, r.Name, t)
+	path, err := z.CreateDataset(name, r.Name, t, r.BaseZfsProperties())
 	if err != nil {
 		return err
 	}
 
 	ctx := context.Background()
 	resp, err := docker.ContainerCreate(ctx, &container.Config{
-		Image: r.Docker.Image,
-		Env:   r.Docker.Env,
-		Tty:   false,
+		Image:      r.Docker.Image,
+		Entrypoint: r.BaseEntrypoint(),
+		Cmd:        r.BaseCmd(),
+		Env:        r.BaseEnv(),
+		Tty:        false,
 		Healthcheck: &container.HealthConfig{
 			Test:        []string{"CMD-SHELL", r.Docker.Healthcheck},
 			Interval:    1 * time.Second,
@@ -121,6 +124,11 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 		return err
 	}
 
+	err = z.SetProperties(name, r.CloneZfsProperties(), true)
+	if err != nil {
+		return fmt.Errorf("set ZFS properties: %w", err)
+	}
+
 	err = z.SnapDataset(name, r.Name, t)
 	if err != nil {
 		return err
@@ -133,8 +141,8 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 
 const networkName = "zdap_proxy_net"
 
-func findNetwork(cli *client.Client) (*types.NetworkResource, error) {
-	networks, err := cli.NetworkList(context.Background(), types.NetworkListOptions{})
+func findNetwork(cli *client.Client) (*network.Summary, error) {
+	networks, err := cli.NetworkList(context.Background(), network.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +154,7 @@ func findNetwork(cli *client.Client) (*types.NetworkResource, error) {
 	return nil, nil
 }
 
-func EnsureNetwork(cli *client.Client) (*types.NetworkResource, error) {
+func EnsureNetwork(cli *client.Client) (*network.Summary, error) {
 
 	net, err := findNetwork(cli)
 	if err != nil {
@@ -157,7 +165,7 @@ func EnsureNetwork(cli *client.Client) (*types.NetworkResource, error) {
 	}
 
 	fmt.Println("Creating network", networkName)
-	_, err = cli.NetworkCreate(context.Background(), networkName, types.NetworkCreate{
+	_, err = cli.NetworkCreate(context.Background(), networkName, network.CreateOptions{
 		Attachable: true,
 	})
 

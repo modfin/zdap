@@ -2,14 +2,15 @@ package api
 
 import (
 	"fmt"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal/core"
 	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
-	"sort"
-	"strings"
-	"time"
 )
 
 func getStatus(dss *zfs.Dataset, app *core.Core) (zdap.ServerStatus, error) {
@@ -68,7 +69,7 @@ func getSnap(dss *zfs.Dataset, owner string, createdAt time.Time, resource strin
 			continue
 		}
 		t.Clones, err = getClones(dss, owner, t.CreatedAt, resource, app)
-		return &t, nil
+		return &t, err
 	}
 	return nil, fmt.Errorf("could not find snap %s@%s", resource, createdAt.Format(utils.TimestampFormat))
 }
@@ -115,7 +116,7 @@ func getClones(dss *zfs.Dataset, owner string, snap time.Time, resource string, 
 		return nil, err
 	}
 	for _, c := range cc[snap] {
-		if strings.ToLower(c.Owner) == strings.ToLower(owner) {
+		if strings.EqualFold(c.Owner, owner) {
 			clones = append(clones, c)
 		}
 	}

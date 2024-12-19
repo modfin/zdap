@@ -3,16 +3,17 @@ package zfs
 import (
 	"errors"
 	"fmt"
-	"github.com/bicomsystems/go-libzfs"
-	"github.com/modfin/zdap"
-	"github.com/modfin/zdap/internal/servermodel"
-	"github.com/modfin/zdap/internal/utils"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	zfs "github.com/bicomsystems/go-libzfs"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal/servermodel"
+	"github.com/modfin/zdap/internal/utils"
 )
 
 // Dataset currently just wrap the dataset structure from go-libzfs, but will probably be extended in the future.
@@ -59,11 +60,60 @@ func (z *ZFS) GetDatasetSnapNameAt(name string, at time.Time) string {
 	return fmt.Sprintf("%s@snap", z.GetDatasetBaseNameAt(name, at))
 }
 
-func (z *ZFS) CreateDataset(name string, resource string, creation time.Time) (string, error) {
+func zfsPropMap(zfsProps map[string]string) map[zfs.Prop]zfs.Property {
+	if len(zfsProps) == 0 {
+		return nil
+	}
+	pmap := map[string]zfs.Prop{
+		"redundant_metadata":   zfs.DatasetPropRedundantMetadata,
+		"sync":                 zfs.DatasetPropSync,
+		"checksum":             zfs.DatasetPropChecksum,
+		"dedup":                zfs.DatasetPropDedup,
+		"compression":          zfs.DatasetPropCompression,
+		"snapdir":              zfs.DatasetPropSnapdir,
+		"snapdev":              zfs.DatasetPropSnapdev,
+		"copies":               zfs.DatasetPropCopies,
+		"primarycache":         zfs.DatasetPropPrimarycache,
+		"secondarycache":       zfs.DatasetPropSecondarycache,
+		"logbias":              zfs.DatasetPropLogbias,
+		"xattr":                zfs.DatasetPropXattr,
+		"dnodesize":            zfs.DatasetPropDnodeSize,
+		"atime":                zfs.DatasetPropAtime,
+		"relatime":             zfs.DatasetPropRelatime,
+		"devices":              zfs.DatasetPropDevices,
+		"exec":                 zfs.DatasetPropExec,
+		"setuid":               zfs.DatasetPropSetuid,
+		"readonly":             zfs.DatasetPropReadonly,
+		"vscan":                zfs.DatasetPropVscan,
+		"nbmand":               zfs.DatasetPropNbmand,
+		"overlay":              zfs.DatasetPropOverlay,
+		"version":              zfs.DatasetPropVersion,
+		"quota":                zfs.DatasetPropQuota,
+		"reservation":          zfs.DatasetPropReservation,
+		"refquota":             zfs.DatasetPropRefquota,
+		"refreservation":       zfs.DatasetPropRefreservation,
+		"filesystem_limit":     zfs.DatasetPropFilesystemLimit,
+		"snapshot_limit":       zfs.DatasetPropSnapshotLimit,
+		"recordsize":           zfs.DatasetPropRecordsize,
+		"special_small_blocks": zfs.DatasetPropSpecialSmallBlocks,
+	}
+	dsProps := make(map[zfs.Prop]zfs.Property, len(zfsProps))
+	for key, val := range zfsProps {
+		p, ok := pmap[key]
+		if !ok {
+			fmt.Printf("ignoring ZFS property: '%s' = '%s'\n", key, val)
+			continue
+		}
+		dsProps[p] = zfs.Property{Value: val}
+	}
+	return dsProps
+}
+
+func (z *ZFS) CreateDataset(name string, resource string, creation time.Time, zfsProps map[string]string) (string, error) {
 	z.writeLock()
 	defer z.writeUnlock()
 
-	ds, err := zfs.DatasetCreate(fmt.Sprintf("%s/%s", z.pool, name), zfs.DatasetTypeFilesystem, nil)
+	ds, err := zfs.DatasetCreate(fmt.Sprintf("%s/%s", z.pool, name), zfs.DatasetTypeFilesystem, zfsPropMap(zfsProps))
 	if err != nil {
 		return "", err
 	}
@@ -496,6 +546,39 @@ func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool) (
 	}
 
 	return cloneName, path, err
+}
+
+func (z *ZFS) SetProperties(name string, props map[string]string, forgiving bool) error {
+	ds, err := zfs.DatasetOpenSingle(fmt.Sprintf("%s/%s", z.pool, name))
+	if err != nil {
+		return err
+	}
+	return z.SetDatasetProperties(ds, props, forgiving)
+}
+
+func (z *ZFS) SetDatasetProperties(dataset zfs.Dataset, props map[string]string, forgiving bool) error {
+	if len(props) == 0 {
+		return nil
+	}
+
+	z.writeLock()
+	defer z.writeUnlock()
+
+	var errs []error
+	for prop, val := range zfsPropMap(props) {
+		err := dataset.SetProperty(prop, val.Value)
+		if err != nil {
+			if forgiving {
+				fmt.Printf("failed to set property '%d' to '%s', error: %v\n", prop, val.Value, err)
+				continue
+			}
+			errs = append(errs, fmt.Errorf("failed to set property '%d' to '%s': %w", prop, val.Value, err))
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return errors.Join(errs...)
 }
 
 func (z *ZFS) SetUserProperty(dataset zfs.Dataset, prop string, value string) error {
