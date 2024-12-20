@@ -4,6 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"sort"
+	"time"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
@@ -17,11 +23,6 @@ import (
 	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
-	"io"
-	"os"
-	"regexp"
-	"sort"
-	"time"
 )
 
 type CloneContext struct {
@@ -149,7 +150,9 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 
 	resp, err := docker.ContainerCreate(context.Background(), &container.Config{
 		Image:      r.Docker.Image,
-		Env:        r.Docker.Env,
+		Entrypoint: r.CloneEntrypoint(),
+		Cmd:        r.CloneCmd(),
+		Env:        r.CloneEnv(),
 		Tty:        false,
 		Labels:     map[string]string{"owner": owner},
 		Domainname: cloneName,
@@ -232,10 +235,10 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	}
 
 	dss2, err := z.Open()
-	defer dss2.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer dss2.Close()
 
 	clones, err := z.ListClones(dss2)
 	if err != nil {
@@ -245,7 +248,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	matchingClones := slicez.Filter(clones, func(c servermodel.ServerInternalClone) bool {
 		return c.Name == cloneName
 	})
-	if matchingClones != nil && len(matchingClones) > 0 {
+	if len(matchingClones) > 0 {
 		fmt.Printf("Setting healthy for %s\n", cloneName)
 		m := matchingClones[0]
 		err := z.SetUserProperty(*m.Dataset, zfs.PropHealthy, "true")

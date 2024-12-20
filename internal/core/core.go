@@ -3,6 +3,12 @@ package core
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -19,12 +25,6 @@ import (
 	cload "github.com/shirou/gopsutil/v3/load"
 	cmem "github.com/shirou/gopsutil/v3/mem"
 	"gopkg.in/yaml.v3"
-	"io/ioutil"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
-	"time"
 )
 
 type Core struct {
@@ -112,17 +112,22 @@ func (c *Core) ExecAllCronjobs() {
 	fmt.Println("[CRON] Executing all cron jobs now")
 	c.cron.Stop()
 	for _, e := range c.cron.Entries() {
-		fmt.Println(fmt.Sprintf("[CRON] Starting job %d now, was scheduled for %v ", e.ID, e.Next))
+		fmt.Printf("[CRON] Starting job %d now, was scheduled for %v\n", e.ID, e.Next)
 		e.Job.Run()
 	}
 	fmt.Println("[CRON] Done executing all cronjobs, starting crontab")
 	c.cron.Start()
 }
 
-func (c *Core) reload() error {
+func (c *Core) reload() (err error) {
 	if c.cron != nil {
 		c.cron.Stop()
-		defer c.Start()
+		defer func() {
+			if err != nil {
+				return
+			}
+			err = c.Start()
+		}()
 	}
 	newCron := cron.New()
 
@@ -154,7 +159,7 @@ func loadResources(dir string) ([]internal.Resource, error) {
 	var resources []internal.Resource
 	for _, path := range paths {
 		//fmt.Println("[CORE] Adding resource", path)
-		b, err := ioutil.ReadFile(path)
+		b, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
 		}

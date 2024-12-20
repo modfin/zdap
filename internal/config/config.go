@@ -1,10 +1,11 @@
 package config
 
 import (
-	"github.com/caarlos0/env"
-	"github.com/urfave/cli/v2"
 	"log"
 	"sync"
+
+	"github.com/caarlos0/env"
+	"github.com/urfave/cli/v2"
 )
 
 type Config struct {
@@ -40,7 +41,7 @@ func FromCli(c *cli.Context) *Config {
 			cfg.ConfigDir = c.String("config-dir")
 		}
 		if c.IsSet("network-address") {
-			cfg.ConfigDir = c.String("network-address")
+			cfg.NetworkAddress = c.String("network-address")
 		}
 		if c.IsSet("api-port") {
 			cfg.APIPort = c.Int("api-port")
