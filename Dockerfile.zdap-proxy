@@ -1,10 +1,25 @@
-FROM golang:1.23.2-alpine3.20 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24.0-alpine3.21 AS golang
+WORKDIR /src
+#RUN apk add --no-cache tzdata ca-certificates
+RUN --mount=type=cache,target=/go/pkg/mod/ \
+--mount=type=bind,source=go.sum,target=go.sum \
+--mount=type=bind,source=go.mod,target=go.mod \
+go mod download -x
 
+FROM golang AS builder
+ARG TARGETOS
+ARG TARGETARCH
+ARG GO_LDFLAGS="-s -w"
+ARG GO_BUILD_ARGS=" -trimpath"
+RUN --mount=type=cache,target=/go/pkg/mod/ \
+--mount=type=bind,target=. \
+CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="${GO_LDFLAGS}" ${GO_BUILD_ARGS} -o /zdap-proxyd ./cmd/zdap-proxyd
 
-COPY . /src
-RUN cd /src && go build -o /zdap-proxyd /src/cmd/zdap-proxyd/zdap-proxyd.go
-
-FROM alpine:3.20.3
-RUN apk add --no-cache tzdata ca-certificates
-COPY --from=builder /zdap-proxyd /
-CMD /zdap-proxyd
+FROM scratch
+ENV TZ=UTC
+# AFAICS, we shouln't need neither root-cert bundle or tz-db, for either proxy binary, but keep them commented for now so that it's quick&easy to add to the image, if it's needed.
+#COPY --from=golang /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+#COPY --from=golang /usr/share/zoneinfo /usr/share/zoneinfo
+USER 65534:65534
+COPY --from=builder /zdap-*proxyd /
+ENTRYPOINT [ "/zdap-proxyd" ]

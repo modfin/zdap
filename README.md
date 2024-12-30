@@ -96,5 +96,43 @@ zdap detach <resource>  # detaches the resource from the docker-compose.override
                         # and destroys the resource-clone on the zdap server
 ```
 
+# kubernetes
+To access a zdap database from within a kubernetes cluster, just deploy a zdap-proxy image where the
+`ZDAP_CLONE_OWNER_NAME`, `ZDAP_RESOURCE` and `ZDAP_SERVERS` environment variable are set. `ZDAP_CLONE_OWNER_NAME` must 
+a be unique identifier for the cluster.
 
+There is also another optional
+parameter (`ZDAP_RESET_AT_HH_MM`) that can be set to automatically take a new snapshot each day.
+
+Deployment example:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-x
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-x
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: postgres-x
+    spec:
+      containers:
+        - name: postgres-x
+          image: modfin/zdap-proxy:latest
+          env:
+            - name: ZDAP_CLONE_OWNER_NAME
+              value: "staging@example.com"
+            - name: ZDAP_RESOURCE
+              value: "postgres-x"
+            - name: ZDAP_SERVERS
+              value: "192.168.0.x,192.168.0.y"
+            - name: ZDAP_RESET_AT_HH_MM
+              value: "0130"
+```
 
