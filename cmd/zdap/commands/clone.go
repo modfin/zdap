@@ -1,22 +1,27 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/c2h5oh/datasize"
-	"github.com/modfin/zdap"
-	"github.com/modfin/zdap/internal/compose"
-	"github.com/modfin/zdap/internal/utils"
-	"github.com/urfave/cli/v2"
-	"gopkg.in/yaml.v3"
-	"io/ioutil"
+	"io"
 	"math"
+	"os"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/c2h5oh/datasize"
+	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/client"
+	"github.com/modfin/zdap"
+	"github.com/modfin/zdap/internal/compose"
+	"github.com/modfin/zdap/internal/utils"
+	"github.com/urfave/cli/v2"
+	"gopkg.in/yaml.v3"
 )
 
 func parsArgs(args []string) (servers []string, resource string, snap time.Time, err error) {
@@ -337,6 +342,7 @@ func AttachCloneCompletion(c *cli.Context) {
 	}
 	fmt.Println(strings.Join(complets, "\n"))
 }
+
 func AttachClone(c *cli.Context) error {
 
 	var err error
@@ -354,7 +360,7 @@ func AttachClone(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	composeData, err := ioutil.ReadFile(settings.Compose)
+	composeData, err := os.ReadFile(settings.Compose)
 	if err != nil {
 		return err
 	}
@@ -364,7 +370,7 @@ func AttachClone(c *cli.Context) error {
 		return err
 	}
 
-	overrideData, err := ioutil.ReadFile(settings.Override)
+	overrideData, err := os.ReadFile(settings.Override)
 	if err != nil {
 		return err
 	}
@@ -438,8 +444,24 @@ func AttachClone(c *cli.Context) error {
 		port = 5432
 	}
 
+	// Try to pull zdap-proxy image, since it sometimes gets overwritten in the dev environment when containers are being rebuilt
+	proxyImageName := "modfin/zdap-proxy:latest"
+	dockerCli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		fmt.Printf("Failed to get a Docker client, won't try to pull modfin/zdap-proxy image. Error: %v\n", err)
+	} else {
+		reader, err := dockerCli.ImagePull(context.Background(), proxyImageName, image.PullOptions{})
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(os.Stdout, reader)
+		if err != nil {
+			return err
+		}
+	}
+
 	container := compose.Container{}
-	container.Image = "modfin/zdap-proxy:latest"
+	container.Image = proxyImageName
 	container.Ports = ports
 	container.Environment = []string{
 		fmt.Sprintf("LISTEN_PORT=%d", port),
@@ -464,7 +486,7 @@ func AttachClone(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(settings.Override, overrideData, 0644)
+	return os.WriteFile(settings.Override, overrideData, 0644)
 }
 
 func DetachCloneCompletion(c *cli.Context) {
@@ -472,7 +494,7 @@ func DetachCloneCompletion(c *cli.Context) {
 	if err != nil {
 		return
 	}
-	overrideData, err := ioutil.ReadFile(settings.Override)
+	overrideData, err := os.ReadFile(settings.Override)
 	if err != nil {
 		return
 	}
@@ -500,7 +522,7 @@ func DetachClone(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	composeData, err := ioutil.ReadFile(settings.Compose)
+	composeData, err := os.ReadFile(settings.Compose)
 	if err != nil {
 		return err
 	}
@@ -510,7 +532,7 @@ func DetachClone(c *cli.Context) error {
 		return err
 	}
 
-	overrideData, err := ioutil.ReadFile(settings.Override)
+	overrideData, err := os.ReadFile(settings.Override)
 	if err != nil {
 		return err
 	}
@@ -573,5 +595,5 @@ func DetachClone(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(settings.Override, overrideData, 0644)
+	return os.WriteFile(settings.Override, overrideData, 0644)
 }
