@@ -24,15 +24,16 @@ func (pm PortMappings) Swap(i, j int)      { pm[i], pm[j] = pm[j], pm[i] }
 func (pm PortMappings) Less(i, j int) bool { return pm[i].ContainerPort < pm[j].ContainerPort }
 
 // IntermediateVolume is an intermediate representation for volume information
-//type IntermediateVolume struct {
-//	Host         string
-//	Container    string
-//	SourceVolume string
-//	ReadOnly     bool
-//}
 //
-//// IntermediateVolumes is a composite type for slices of IntermediateVolume
-//type IntermediateVolumes []IntermediateVolume
+//	type IntermediateVolume struct {
+//		Host         string
+//		Container    string
+//		SourceVolume string
+//		ReadOnly     bool
+//	}
+//
+// // IntermediateVolumes is a composite type for slices of IntermediateVolume
+// type IntermediateVolumes []IntermediateVolume
 type IntermediateVolumes interface{}
 
 //func (iv IntermediateVolumes) Len() int      { return len(iv) }
@@ -109,6 +110,5 @@ type Containers []Container
 
 // DockerCompose implements InputFormat and OutputFormat
 type DockerCompose struct {
-	Version  string                `yaml:"version"`
 	Services map[string]*Container `yaml:"services"`
 }
