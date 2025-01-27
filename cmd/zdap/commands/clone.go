@@ -478,15 +478,37 @@ func AttachClone(c *cli.Context) error {
 	container.Labels = labels
 
 	override.Services[name] = &container
-	if override.Version == "" {
-		override.Version = docker.Version
+
+	// Clear all build nodes, since those will be (re-)written after we have marshaled the data
+	for _, overrideContainer := range override.Services {
+		overrideContainer.Build = nil
 	}
 
 	overrideData, err = yaml.Marshal(override)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(settings.Override, overrideData, 0644)
+
+	// Fix issue with zdap-proxy image being overwritten by dcr/docker compose builds, by inserting a '!reset' YAML
+	// custom tag, on the 'build' node. The !reset custom tag causes Docker to clear the build node when it's merging
+	// the compose files. gopkg.in/yaml.v3 support parsing YAML with custom tags, but I could not find an easy way to
+	// add them when marshaling the changes to the override file, so reverted to just string manipulation of the
+	// marshalled data.
+	//
+	// Insert 'build: !reset {}' before each 'image:' found in the override YAML
+	overrideDataStr := string(overrideData)
+	var ofs, pos int
+	for {
+		pos = strings.Index(overrideDataStr[ofs:], "image:")
+		if pos == -1 {
+			break
+		}
+		old := overrideDataStr
+		overrideDataStr = old[:pos+ofs] + "build: !reset {}\n        " + old[pos+ofs:]
+		ofs += pos + 30
+	}
+
+	return os.WriteFile(settings.Override, []byte(overrideDataStr), 0644)
 }
 
 func DetachCloneCompletion(c *cli.Context) {
