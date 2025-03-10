@@ -159,7 +159,7 @@ func (p *k8sp) getExistingClone() *zdap.PublicClone {
 
 	if len(activeClones) > 1 {
 		// Sort available clones, so that we have the latest snap first
-		slicez.SortBy(activeClones, func(a, b zdap.PublicClone) bool {
+		activeClones = slicez.SortBy(activeClones, func(a, b zdap.PublicClone) bool {
 			return a.SnappedAt.After(b.SnappedAt)
 		})
 	}
