@@ -404,7 +404,7 @@ func AttachClone(c *cli.Context) error {
 	var clone *zdap.PublicClone
 
 	if c.Bool("new") {
-		fmt.Print("Cloning ", resource, "...")
+		fmt.Printf("Cloning %s...\n", resource)
 		clone, err = cloneResource(c.Args().Slice(), zdap.ClaimArgs{
 			ClaimPooled: c.Bool("claim"),
 			TtlSeconds:  c.Int64("ttl"),
