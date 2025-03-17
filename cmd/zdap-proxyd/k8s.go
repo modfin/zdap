@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/c2h5oh/datasize"
@@ -67,9 +69,6 @@ func (p *k8sp) Stop() {
 }
 
 func (p *k8sp) attachNewClone() *zdap.PublicClone {
-	var cli *zdap.Client
-	var cliScore float64 = -math.MaxFloat64
-
 	zdapServerScore := func(stat *zdap.ServerStatus) float64 { // higher the better
 		disk := stat.FreeDisk
 		clones := stat.Clones
@@ -88,32 +87,73 @@ func (p *k8sp) attachNewClone() *zdap.PublicClone {
 	}
 
 	cfg := Config()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	type availableSnap struct {
+		zdap.PublicSnap
+		cli   *zdap.Client
+		score float64
+	}
+	var availableSnaps []availableSnap
 	for _, s := range cfg.Servers {
-		if !strings.Contains(s, ":") {
-			s = fmt.Sprintf("%s:%d", s, cfg.APIPort)
-		}
+		wg.Add(1)
+		go func(server string) {
+			defer wg.Done()
+			if !strings.Contains(server, ":") {
+				server = fmt.Sprintf("%s:%d", server, cfg.APIPort)
+			}
 
-		c := zdap.NewClient(cfg.CloneOwnerName, s)
-		stat, err := c.Status()
-		if err != nil {
-			log.Printf("error connecting to server: %v\n", err)
-			continue
-		}
-		if !utils.StringSliceContains(stat.Resources, cfg.Resource) {
-			continue
-		}
-		cs := zdapServerScore(stat)
-		log.Printf("%s found on %s, with server score: %f\n", cfg.Resource, s, cs)
-		if cs > cliScore {
-			cli = c
-			cliScore = cs
-		}
+			cli := zdap.NewClient(http.DefaultClient, cfg.CloneOwnerName, server)
+			stat, err := cli.Status()
+			if err != nil {
+				log.Printf("%s - connect error: %v\n", server, err)
+				return
+			}
+			if !utils.StringSliceContains(stat.Resources, cfg.Resource) {
+				log.Printf("%s - '%s' not found\n", server, cfg.Resource)
+				return
+			}
+			cs := zdapServerScore(stat)
+			res, err := cli.GetResourceSnaps(cfg.Resource)
+			if err != nil {
+				log.Printf("%s - error getting snaps, error: %v\n", server, err)
+				return
+			}
+			if cfg.ResourceFilter != "" {
+				log.Printf("%s - filter %d snapshots using '%s'\n", server, len(res.Snaps), cfg.ResourceFilter)
+				res.Snaps = slicez.Filter(res.Snaps, func(a zdap.PublicSnap) bool { return strings.Contains(a.Name, cfg.ResourceFilter) })
+			}
+			if len(res.Snaps) == 0 {
+				log.Printf("%s - '%s' snapshot not found\n", server, cfg.Resource)
+				return
+			}
+			log.Printf("%s - '%s' found with server score: %f (RAM: %d, Disk: %d, clones: %d, load: %f/%f/%f)\n", server, cfg.Resource, cs, stat.FreeMem, stat.FreeDisk, stat.Clones, stat.Load1, stat.Load5, stat.Load15)
+			mu.Lock()
+			for _, snap := range res.Snaps {
+				availableSnaps = append(availableSnaps, availableSnap{
+					PublicSnap: snap,
+					cli:        cli,
+					score:      cs - math.Log2(time.Since(snap.CreatedAt).Hours()/24), // Higher score for recent snapshots
+				})
+			}
+			mu.Unlock()
+		}(s)
 	}
-	if cli == nil {
+	wg.Wait()
+	if len(availableSnaps) == 0 {
 		log.Fatalf("ERROR: no zdap server with '%s' resource could be found!\n", cfg.Resource)
+		return nil
+	}
+	availableSnaps = slicez.SortBy(availableSnaps, func(a, b availableSnap) bool {
+		return a.score > b.score // Highest score first
+	})
+	for _, snap := range availableSnaps {
+		log.Printf("%s - %s = %f\n", snap.cli.Server(), snap.Name, snap.score)
 	}
 
-	clone, err := cli.CloneSnap(cfg.Resource, time.Time{}, zdap.ClaimArgs{})
+	snap := availableSnaps[0]
+	log.Printf("Creating a new clone on %s from %s\n", snap.cli.Server(), snap.Name)
+	clone, err := snap.cli.CloneSnap(cfg.Resource, snap.CreatedAt, zdap.ClaimArgs{})
 	if err != nil {
 		log.Fatalf("ERROR: failed to clone '%s' resource, error %v\n", cfg.Resource, err)
 	}
@@ -124,7 +164,7 @@ func (p *k8sp) attachNewClone() *zdap.PublicClone {
 func (p *k8sp) destroyClone(clone *zdap.PublicClone) {
 	log.Printf("Destroying clone %s on %s (this should cause all open proxy connections to the server to be dropped)...\n", clone.Name, clone.Server)
 	cfg := Config()
-	cli := zdap.NewClient(cfg.CloneOwnerName, fmt.Sprintf("%s:%d", clone.Server, cfg.APIPort))
+	cli := zdap.NewClient(http.DefaultClient, cfg.CloneOwnerName, fmt.Sprintf("%s:%d", clone.Server, cfg.APIPort))
 	err := cli.DestroyClone(cfg.Resource, clone.CreatedAt)
 	if err != nil {
 		log.Printf("ERROR: failed to destroy clone %s on %s, error: %v\n", clone.Name, clone.Server, err)
@@ -141,7 +181,7 @@ func (p *k8sp) getExistingClone() *zdap.PublicClone {
 			s = fmt.Sprintf("%s:%d", s, cfg.APIPort)
 		}
 
-		c := zdap.NewClient(cfg.CloneOwnerName, s)
+		c := zdap.NewClient(http.DefaultClient, cfg.CloneOwnerName, s)
 		clones, err := c.GetClones(cfg.Resource)
 		if err != nil {
 			log.Printf("ERROR: failed to get '%s' resource clones from %s, error %v\n", cfg.Resource, s, err)

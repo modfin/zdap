@@ -13,6 +13,7 @@ type conf struct {
 	CloneOwnerName string   `env:"ZDAP_CLONE_OWNER_NAME"`
 	ListenPort     int      `env:"LISTEN_PORT" envDefault:"5432"`
 	Resource       string   `env:"ZDAP_RESOURCE"`
+	ResourceFilter string   `env:"ZDAP_RESOURCE_FILTER"`
 	Servers        []string `env:"ZDAP_SERVERS"`
 	ResetAtHhMm    string   `env:"ZDAP_RESET_AT_HH_MM"`
 }
