@@ -1,7 +1,7 @@
 package servermodel
 
 import (
-	"github.com/bicomsystems/go-libzfs"
+	"github.com/kraudcloud/go-libzfs/v2"
 	"github.com/modfin/zdap"
 )
 

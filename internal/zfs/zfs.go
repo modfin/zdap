@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	zfs "github.com/bicomsystems/go-libzfs"
+	zfs "github.com/kraudcloud/go-libzfs/v2"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
@@ -65,37 +65,37 @@ func zfsPropMap(zfsProps map[string]string) map[zfs.Prop]zfs.Property {
 		return nil
 	}
 	pmap := map[string]zfs.Prop{
-		"redundant_metadata":   zfs.DatasetPropRedundantMetadata,
-		"sync":                 zfs.DatasetPropSync,
-		"checksum":             zfs.DatasetPropChecksum,
-		"dedup":                zfs.DatasetPropDedup,
-		"compression":          zfs.DatasetPropCompression,
-		"snapdir":              zfs.DatasetPropSnapdir,
-		"snapdev":              zfs.DatasetPropSnapdev,
-		"copies":               zfs.DatasetPropCopies,
-		"primarycache":         zfs.DatasetPropPrimarycache,
-		"secondarycache":       zfs.DatasetPropSecondarycache,
-		"logbias":              zfs.DatasetPropLogbias,
-		"xattr":                zfs.DatasetPropXattr,
-		"dnodesize":            zfs.DatasetPropDnodeSize,
-		"atime":                zfs.DatasetPropAtime,
-		"relatime":             zfs.DatasetPropRelatime,
-		"devices":              zfs.DatasetPropDevices,
-		"exec":                 zfs.DatasetPropExec,
-		"setuid":               zfs.DatasetPropSetuid,
-		"readonly":             zfs.DatasetPropReadonly,
-		"vscan":                zfs.DatasetPropVscan,
-		"nbmand":               zfs.DatasetPropNbmand,
-		"overlay":              zfs.DatasetPropOverlay,
-		"version":              zfs.DatasetPropVersion,
-		"quota":                zfs.DatasetPropQuota,
-		"reservation":          zfs.DatasetPropReservation,
-		"refquota":             zfs.DatasetPropRefquota,
-		"refreservation":       zfs.DatasetPropRefreservation,
-		"filesystem_limit":     zfs.DatasetPropFilesystemLimit,
-		"snapshot_limit":       zfs.DatasetPropSnapshotLimit,
-		"recordsize":           zfs.DatasetPropRecordsize,
-		"special_small_blocks": zfs.DatasetPropSpecialSmallBlocks,
+		"redundant_metadata": zfs.DatasetPropRedundantMetadata,
+		"sync":               zfs.DatasetPropSync,
+		"checksum":           zfs.DatasetPropChecksum,
+		"dedup":              zfs.DatasetPropDedup,
+		"compression":        zfs.DatasetPropCompression,
+		"snapdir":            zfs.DatasetPropSnapdir,
+		"snapdev":            zfs.DatasetPropSnapdev,
+		"copies":             zfs.DatasetPropCopies,
+		"primarycache":       zfs.DatasetPropPrimarycache,
+		"secondarycache":     zfs.DatasetPropSecondarycache,
+		"logbias":            zfs.DatasetPropLogbias,
+		"xattr":              zfs.DatasetPropXattr,
+		"dnodesize":          zfs.DatasetPropDnodeSize,
+		"atime":              zfs.DatasetPropAtime,
+		"relatime":           zfs.DatasetPropRelatime,
+		"devices":            zfs.DatasetPropDevices,
+		"exec":               zfs.DatasetPropExec,
+		"setuid":             zfs.DatasetPropSetuid,
+		"readonly":           zfs.DatasetPropReadonly,
+		"vscan":              zfs.DatasetPropVscan,
+		"nbmand":             zfs.DatasetPropNbmand,
+		"overlay":            zfs.DatasetPropOverlay,
+		"version":            zfs.DatasetPropVersion,
+		"quota":              zfs.DatasetPropQuota,
+		"reservation":        zfs.DatasetPropReservation,
+		"refquota":           zfs.DatasetPropRefquota,
+		"refreservation":     zfs.DatasetPropRefreservation,
+		"filesystem_limit":   zfs.DatasetPropFilesystemLimit,
+		"snapshot_limit":     zfs.DatasetPropSnapshotLimit,
+		"recordsize":         zfs.DatasetPropRecordsize,
+		//"special_small_blocks": zfs.DatasetPropSpecialSmallBlocks,
 	}
 	dsProps := make(map[zfs.Prop]zfs.Property, len(zfsProps))
 	for key, val := range zfsProps {
