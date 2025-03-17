@@ -3,16 +3,20 @@ package zdap
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/modfin/zdap/internal/utils"
 	"io"
-	"io/ioutil"
+	"log"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/modfin/zdap/internal/utils"
 )
 
 type Client struct {
+	cli    *http.Client
 	user   string
 	server string
 }
@@ -22,164 +26,106 @@ type ClaimArgs struct {
 	TtlSeconds  int64
 }
 
-func NewClient(user, server string) *Client {
-	return &Client{server: server, user: user}
+func NewClient(client *http.Client, user, server string) *Client {
+	return &Client{cli: client, server: server, user: user}
 }
 func (c Client) Server() string {
 	return c.server
 }
 
-func (c Client) newReq(method string, url string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, url, body)
+func (c Client) Status() (*ServerStatus, error) {
+	return fetch[*ServerStatus](c, "GET", "status", nil)
+}
+
+func (c Client) GetResources() ([]PublicResource, error) {
+	return fetch[[]PublicResource](c, "GET", "resources", nil)
+}
+
+func (c Client) GetResourceSnaps(resource string) (PublicResource, error) {
+	return fetch[PublicResource](c, "GET", "resources/:resource", nil, resource)
+}
+
+func (c Client) CloneSnap(resource string, snap time.Time, claimArgs ClaimArgs) (*PublicClone, error) {
+	if !claimArgs.ClaimPooled {
+		return fetch[*PublicClone](c, "POST", "resources/:resource/snaps/:createdAt", nil, resource, snap)
+	}
+
+	var qp url.Values
+	if claimArgs.TtlSeconds != 0 {
+		qp = url.Values{"ttl": []string{strconv.FormatInt(claimArgs.TtlSeconds, 10)}}
+	}
+	return fetch[*PublicClone](c, "POST", "resources/:resource/claim", qp, resource)
+}
+
+func (c Client) GetClones(resource string) ([]PublicClone, error) {
+	return fetch[[]PublicClone](c, "GET", "resources/:resource/clones", nil, resource)
+}
+
+func (c Client) ExpireClaim(resource string, claimId string) error {
+	return call(c, "DELETE", "resources/:resource/claims/:claimId", nil, resource, claimId)
+}
+
+func (c Client) DestroyClone(resource string, clone time.Time) error {
+	return call(c, "DELETE", "resources/:resource/clones/:time", nil, resource, clone)
+}
+
+func getResource(resource string, resourcePlaceholders []any) string {
+	if len(resourcePlaceholders) == 0 {
+		return resource
+	}
+	placeholder := regexp.MustCompile("(:\\w*)")
+	for i, s := range resourcePlaceholders {
+		var phVal string
+		switch val := s.(type) {
+		case string:
+			phVal = val
+		case time.Time:
+			if !val.IsZero() {
+				phVal = val.Format(utils.TimestampFormat)
+			}
+		default:
+			log.Fatalf("getResource: unknown placeholder type: %T for placeholder: %d, resource: %s", val, i, resource)
+		}
+		ph := placeholder.FindString(resource)
+		resource = strings.Replace(resource, ph, phVal, 1)
+	}
+	return strings.TrimRight(resource, "/")
+}
+
+func call(c Client, method, resource string, queryParams url.Values, resourcePlaceholders ...any) error {
+	_, err := do(c, method, resource, queryParams, resourcePlaceholders...)
+	return err
+}
+
+func fetch[Response any](c Client, method, resource string, queryParams url.Values, resourcePlaceholders ...any) (response Response, err error) {
+	data, err := do(c, method, resource, queryParams, resourcePlaceholders...)
+	if err != nil {
+		return
+	}
+	err = json.Unmarshal(data, &response)
+	return
+
+}
+
+func do(c Client, method, resource string, queryParams url.Values, resourcePlaceholders ...any) ([]byte, error) {
+	req, err := http.NewRequest(method, fmt.Sprintf("http://%s/%s", c.server, getResource(resource, resourcePlaceholders)), nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("auth", c.user)
-	return req, nil
-}
-
-func (c Client) Status() (*ServerStatus, error) {
-	req, err := c.newReq("GET", fmt.Sprintf("http://%s/status", c.server), nil)
-	if err != nil {
-		return nil, err
+	if queryParams != nil {
+		req.URL.RawQuery = queryParams.Encode()
 	}
-	res, err := http.DefaultClient.Do(req)
+
+	res, err := c.cli.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("did not get status code 200, got %d", res.StatusCode)
+		err = fmt.Errorf("did not get status code 200, got %d", res.StatusCode)
+		return nil, err
 	}
 
 	defer res.Body.Close()
-	data, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
-	}
-	var status ServerStatus
-
-	err = json.Unmarshal(data, &status)
-	return &status, err
-}
-
-func (c Client) GetResources() ([]PublicResource, error) {
-	req, err := c.newReq("GET", fmt.Sprintf("http://%s/resources", c.server), nil)
-	if err != nil {
-		return nil, err
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("did not get status code 200, got %d", res.StatusCode)
-	}
-
-	defer res.Body.Close()
-	data, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
-	}
-	var resources []PublicResource
-
-	err = json.Unmarshal(data, &resources)
-	return resources, err
-}
-
-func (c Client) CloneSnap(resource string, snap time.Time, claimArgs ClaimArgs) (*PublicClone, error) {
-	var snapStr string
-	if !snap.IsZero() {
-		snapStr = snap.Format(utils.TimestampFormat)
-	}
-	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/snaps/%s", c.server, resource, snapStr), "/")
-	if claimArgs.ClaimPooled {
-		uri = fmt.Sprintf("http://%s/resources/%s/claim", c.server, resource)
-	}
-	req, err := c.newReq("POST", uri, nil)
-	if err != nil {
-		return nil, err
-	}
-	if claimArgs.ClaimPooled && claimArgs.TtlSeconds != 0 {
-		q := req.URL.Query()
-		q.Add("ttl", strconv.FormatInt(claimArgs.TtlSeconds, 10))
-		req.URL.RawQuery = q.Encode()
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("did not get status code 200, got %d", res.StatusCode)
-	}
-
-	defer res.Body.Close()
-	data, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
-	}
-	var clone PublicClone
-
-	err = json.Unmarshal(data, &clone)
-	return &clone, err
-}
-
-func (c Client) GetClones(resource string) ([]PublicClone, error) {
-	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/clones", c.server, resource), "/")
-	req, err := c.newReq("GET", uri, nil)
-	if err != nil {
-		return nil, err
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("did not get status code 200, got %d", res.StatusCode)
-	}
-
-	defer res.Body.Close()
-	data, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var clone []PublicClone
-	err = json.Unmarshal(data, &clone)
-	return clone, err
-}
-
-func (c Client) ExpireClaim(resource string, claimId string) error {
-	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/claims/%s", c.server, resource, claimId), "/")
-	req, err := c.newReq("DELETE", uri, nil)
-	if err != nil {
-		return err
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	if res.StatusCode != 200 {
-		return fmt.Errorf("did not get status code 200, got %d", res.StatusCode)
-	}
-	return nil
-}
-
-func (c Client) DestroyClone(resource string, clone time.Time) error {
-	var cloneStr string
-	if !clone.IsZero() {
-		cloneStr = clone.Format(utils.TimestampFormat)
-	}
-	uri := strings.TrimRight(fmt.Sprintf("http://%s/resources/%s/clones/%s", c.server, resource, cloneStr), "/")
-	req, err := c.newReq("DELETE", uri, nil)
-	if err != nil {
-		return err
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	if res.StatusCode != 200 {
-		return fmt.Errorf("did not get status code 200, got %d", res.StatusCode)
-	}
-	return nil
+	return io.ReadAll(res.Body)
 }

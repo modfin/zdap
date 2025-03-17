@@ -6,6 +6,7 @@ import (
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/urfave/cli/v2"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -32,7 +33,7 @@ func ListResourceData(all bool, verbose bool) ([]zdap.PublicResource, error) {
 
 	var allResources []zdap.PublicResource
 	for _, s := range cfg.Servers {
-		client := zdap.NewClient(cfg.User, s)
+		client := zdap.NewClient(http.DefaultClient, cfg.User, s)
 		resources, err := client.GetResources()
 		if err != nil {
 			if verbose {
@@ -60,7 +61,7 @@ func ListResources(c *cli.Context) error {
 	}
 
 	for _, s := range cfg.Servers {
-		client := zdap.NewClient(cfg.User, s)
+		client := zdap.NewClient(http.DefaultClient, cfg.User, s)
 		resources, err := client.GetResources()
 		if err != nil {
 			fmt.Printf("@%s [COULD NOT CONNECT, %v]\n", s, err)
@@ -103,7 +104,7 @@ func ResourceListCompletion(c *cli.Context) {
 
 	m := map[string]struct{}{}
 	for _, s := range cfg.Servers {
-		client := zdap.NewClient(cfg.User, s)
+		client := zdap.NewClient(http.DefaultClient, cfg.User, s)
 		resources, err := client.GetResources()
 		if err != nil {
 			continue
@@ -137,7 +138,7 @@ func ListSnaps(c *cli.Context) error {
 	}
 
 	for _, s := range cfg.Servers {
-		client := zdap.NewClient(cfg.User, s)
+		client := zdap.NewClient(http.DefaultClient, cfg.User, s)
 		resources, err := client.GetResources()
 		if err != nil {
 			fmt.Printf("@%s [COULD NOT CONNECT, %v]\n", s, err)
@@ -203,7 +204,7 @@ func ListClones(c *cli.Context) error {
 	//}
 
 	for _, s := range cfg.Servers {
-		client := zdap.NewClient(cfg.User, s)
+		client := zdap.NewClient(http.DefaultClient, cfg.User, s)
 		resources, err := client.GetResources()
 		if err != nil {
 			fmt.Printf("@%s [COULD NOT CONNECT, %v]\n", s, err)
@@ -300,7 +301,7 @@ func ListOrigins(c *cli.Context) error {
 	verbose := c.Bool("verbose")
 
 	for _, s := range cfg.Servers {
-		c := zdap.NewClient(cfg.User, s)
+		c := zdap.NewClient(http.DefaultClient, cfg.User, s)
 		stat, err := c.Status()
 		if err != nil {
 			fmt.Printf("@%s [COULD NOT CONNECT]\n", s)
