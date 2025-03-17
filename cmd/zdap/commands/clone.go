@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
+	"net/http"
 	"os"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/c2h5oh/datasize"
@@ -43,24 +46,7 @@ func parsArgs(args []string) (servers []string, resource string, snap time.Time,
 }
 
 func findServerCandidate(resource string, user string, servers []string, favorPooled bool) (string, error) {
-
-	var candidates []zdap.ServerStatus
-	for _, s := range servers {
-		stat, err := zdap.NewClient(user, s).Status()
-		if err != nil {
-			fmt.Println("[Error connecting to server]", err)
-			continue
-		}
-		if utils.StringSliceContains(stat.Resources, resource) {
-			stat.Address = s
-			candidates = append(candidates, *stat)
-		}
-	}
-	if len(candidates) == 0 {
-		return "", fmt.Errorf("could not find candidate origin for %s resource", resource)
-	}
-
-	score := func(stat zdap.ServerStatus) float64 { // higher the better
+	score := func(stat *zdap.ServerStatus) float64 { // higher the better
 		disk := stat.FreeDisk
 		clones := stat.Clones
 		mem := stat.FreeMem
@@ -77,17 +63,71 @@ func findServerCandidate(resource string, user string, servers []string, favorPo
 		return sum
 	}
 
-	sort.Slice(candidates, func(i, j int) bool {
-		a, b := candidates[i], candidates[j]
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	type availableSnap struct {
+		zdap.PublicSnap
+		cli   *zdap.Client
+		stat  *zdap.ServerStatus
+		svr   string
+		score float64
+	}
+	var availableSnaps []availableSnap
+	for _, s := range servers {
+		wg.Add(1)
+		go func(server string) {
+			defer wg.Done()
+
+			cli := zdap.NewClient(http.DefaultClient, user, server)
+			stat, err := cli.Status()
+			if err != nil {
+				log.Printf("%s - connect error: %v\n", server, err)
+				return
+			}
+			if !utils.StringSliceContains(stat.Resources, resource) {
+				log.Printf("%s - '%s' not found\n", server, resource)
+				return
+			}
+			cs := score(stat)
+			res, err := cli.GetResourceSnaps(resource)
+			if err != nil {
+				log.Printf("%s - error getting snaps, error: %v\n", server, err)
+				return
+			}
+			if len(res.Snaps) == 0 {
+				log.Printf("%s - '%s' snapshot not found\n", server, resource)
+				return
+			}
+			log.Printf("%s - '%s' found with server score: %f (RAM: %d, Disk: %d, clones: %d, load: %f/%f/%f)\n", server, resource, cs, stat.FreeMem, stat.FreeDisk, stat.Clones, stat.Load1, stat.Load5, stat.Load15)
+			mu.Lock()
+			for _, snap := range res.Snaps {
+				availableSnaps = append(availableSnaps, availableSnap{
+					PublicSnap: snap,
+					cli:        cli,
+					stat:       stat,
+					svr:        s,
+					score:      cs - math.Log2(time.Since(snap.CreatedAt).Hours()/24), // Higher score for recent snapshots
+				})
+			}
+			mu.Unlock()
+		}(s)
+	}
+	wg.Wait()
+	if len(availableSnaps) == 0 {
+		log.Fatalf("ERROR: no zdap server with '%s' resource could be found!\n", resource)
+		return "", nil
+	}
+	sort.Slice(availableSnaps, func(i, j int) bool {
+		a, b := availableSnaps[i], availableSnaps[j]
 
 		if favorPooled {
-			return a.ResourceDetails[resource].PooledClonesAvailable > b.ResourceDetails[resource].PooledClonesAvailable
+			return a.stat.ResourceDetails[resource].PooledClonesAvailable > b.stat.ResourceDetails[resource].PooledClonesAvailable
 		}
-		return score(a) > score(b)
+		return a.score > b.score // Highest score first
 	})
-
-	return candidates[0].Address, nil
+	return availableSnaps[0].svr, nil
 }
+
 func DestroyCloneCompletion(c *cli.Context) {
 	AttachCloneCompletion(c)
 }
@@ -123,7 +163,7 @@ func destroyClone(args []string) error {
 
 	for _, s := range servers {
 		fmt.Printf("Destroying %s of %s @%s \n", plural, resource, s)
-		client := zdap.NewClient(cfg.User, s)
+		client := zdap.NewClient(http.DefaultClient, cfg.User, s)
 		err = client.DestroyClone(resource, clone)
 		if err != nil {
 			fmt.Println("[Err]", err)
@@ -184,7 +224,7 @@ func ExpireClaimedResource(c *cli.Context) error {
 	}
 
 	for _, s := range servers {
-		client := zdap.NewClient(cfg.User, s)
+		client := zdap.NewClient(http.DefaultClient, cfg.User, s)
 		err = client.ExpireClaim(resource, claimId)
 		if err != nil {
 			fmt.Println("[Err]", err)
@@ -246,7 +286,7 @@ func cloneResource(args []string, claimArgs zdap.ClaimArgs) (*zdap.PublicClone, 
 			return nil, fmt.Errorf("could not find a suitable server, %w", err)
 		}
 	}
-	client := zdap.NewClient(cfg.User, server)
+	client := zdap.NewClient(http.DefaultClient, cfg.User, server)
 	clone, err := client.CloneSnap(resource, snap, claimArgs)
 	if err != nil {
 		return nil, err
@@ -263,7 +303,7 @@ func findClone(servers []string, resource string, cloneName time.Time) (clone *z
 	clone = &zdap.PublicClone{}
 	for _, server := range servers {
 		var resources []zdap.PublicResource
-		resources, err = zdap.NewClient(cfg.User, server).GetResources()
+		resources, err = zdap.NewClient(http.DefaultClient, cfg.User, server).GetResources()
 		if err != nil {
 			fmt.Printf("[Error connecting to %s] %v", server, err)
 		}
