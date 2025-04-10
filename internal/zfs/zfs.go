@@ -3,7 +3,6 @@ package zfs
 import (
 	"errors"
 	"fmt"
-	"github.com/modfin/zdap/internal"
 	"regexp"
 	"sort"
 	"strconv"
@@ -473,7 +472,7 @@ func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error
 	return err
 }
 
-func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool, r *internal.Resource) (string, string, error) {
+func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool, zfsProps map[string]string) (string, string, error) {
 	z.writeLock()
 	defer z.writeUnlock()
 
@@ -498,8 +497,7 @@ func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool, r
 
 	cloneName := fmt.Sprintf("%s-clone-%s.%s", dsName, created, utils.RandStringRunes(3))
 
-	props := zfsPropMap(r.CloneZfsProperties())
-	clone, err := snap.Clone(fmt.Sprintf("%s/%s", z.pool, cloneName), props)
+	clone, err := snap.Clone(fmt.Sprintf("%s/%s", z.pool, cloneName), zfsPropMap(zfsProps))
 	if err != nil {
 		return "", "", err
 	}
