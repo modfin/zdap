@@ -124,11 +124,6 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 		return err
 	}
 
-	err = z.SetProperties(name, r.CloneZfsProperties(), true)
-	if err != nil {
-		return fmt.Errorf("set ZFS properties: %w", err)
-	}
-
 	err = z.SnapDataset(name, r.Name, t)
 	if err != nil {
 		return err

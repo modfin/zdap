@@ -131,7 +131,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	if err != nil {
 		return nil, err
 	}
-	cloneName, path, err := z.CloneDataset(owner, candidate, port, clonePooled)
+	cloneName, path, err := z.CloneDataset(owner, candidate, port, clonePooled, r)
 	if err != nil {
 		return nil, err
 	}

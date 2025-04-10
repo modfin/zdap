@@ -3,6 +3,7 @@ package zfs
 import (
 	"errors"
 	"fmt"
+	"github.com/modfin/zdap/internal"
 	"regexp"
 	"sort"
 	"strconv"
@@ -472,13 +473,13 @@ func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error
 	return err
 }
 
-func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool) (string, string, error) {
+func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool, r *internal.Resource) (string, string, error) {
 	z.writeLock()
 	defer z.writeUnlock()
 
 	parts := strings.Split(snapName, "@")
 	if len(parts) != 2 {
-		return "", "", errors.New("snap name is not propperly formated")
+		return "", "", errors.New("snap name is not properly formated")
 	}
 	dsName, snapName := parts[0], parts[1]
 
@@ -496,7 +497,9 @@ func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool) (
 	created := time.Now().Format(TimestampFormat)
 
 	cloneName := fmt.Sprintf("%s-clone-%s.%s", dsName, created, utils.RandStringRunes(3))
-	clone, err := snap.Clone(fmt.Sprintf("%s/%s", z.pool, cloneName), nil)
+
+	props := zfsPropMap(r.CloneZfsProperties())
+	clone, err := snap.Clone(fmt.Sprintf("%s/%s", z.pool, cloneName), props)
 	if err != nil {
 		return "", "", err
 	}
