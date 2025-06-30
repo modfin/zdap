@@ -63,6 +63,10 @@ func (p *k8sp) Start(ctx context.Context) {
 }
 
 func (p *k8sp) Stop() {
+	cfg := Config()
+	if cfg.DestroyOnStop && p.clone != nil {
+		p.destroyClone(p.clone)
+	}
 	if p.proxy != nil {
 		p.proxy.Stop()
 	}
