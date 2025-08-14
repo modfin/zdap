@@ -6,7 +6,7 @@ require (
 	github.com/c2h5oh/datasize v0.0.0-20220606134207-859f65c6625b
 	github.com/caarlos0/env v3.5.0+incompatible
 	github.com/caarlos0/env/v11 v11.3.1
-	github.com/docker/docker v27.3.1+incompatible
+	github.com/docker/docker v28.0.0+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/kraudcloud/go-libzfs/v2 v2.22.1
 	github.com/labstack/echo/v4 v4.12.0
