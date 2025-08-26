@@ -275,10 +275,10 @@ func (p *k8sp) setupControlServer(ctx context.Context) {
 	p.wg.Add(1)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /clone/reset", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received HTTP clone reset command")
+	mux.HandleFunc("POST /clones/reset", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received HTTP /clones/reset command - resetting clone")
 		p.reset()
-		w.Write([]byte("Clone reset successful\n"))
+		w.Write([]byte("Clone reset successfuly\n"))
 	})
 
 	p.controlServer = &http.Server{
