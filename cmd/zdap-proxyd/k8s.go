@@ -20,7 +20,6 @@ type k8sp struct {
 	proxy         *TCPProxy
 	clone         *zdap.PublicClone
 	controlServer *http.Server
-	done          chan struct{}
 	wg            sync.WaitGroup
 }
 
@@ -74,9 +73,6 @@ func (p *k8sp) Stop() {
 	}
 	if p.proxy != nil {
 		p.proxy.Stop()
-	}
-	if p.done != nil {
-		close(p.done)
 	}
 	p.wg.Wait()
 }
@@ -271,9 +267,6 @@ func (p *k8sp) setupResetTimer(ctx context.Context, atTimeStr string) {
 }
 
 func (p *k8sp) setupControlServer(ctx context.Context) {
-	p.done = make(chan struct{})
-	p.wg.Add(1)
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /clones/reset", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Received HTTP /clones/reset command - resetting clone")
@@ -293,16 +286,13 @@ func (p *k8sp) setupControlServer(ctx context.Context) {
 		}
 	}()
 
+	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		select {
-		case <-ctx.Done():
-			log.Printf("Context cancelled, shutting down HTTP control server...")
-		case <-p.done:
-			log.Printf("Done signal received, shutting down HTTP control server...")
-		}
+		<-ctx.Done()
+		log.Printf("Context cancelled, shutting down HTTP control server...")
 
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
 		if err := p.controlServer.Shutdown(shutdownCtx); err != nil {

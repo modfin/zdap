@@ -15,7 +15,7 @@ func check(err error) {
 
 func main() {
 	log.Println("Initializing proxy...")
-	appCtx := context.Background()
+	appCtx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
 	var proxy interface {
 		Start(context.Context)
@@ -29,11 +29,9 @@ func main() {
 	}
 
 	proxy.Start(appCtx)
-
 	log.Println("Proxy started")
 
-	ctx, cancel := signal.NotifyContext(appCtx, syscall.SIGINT, syscall.SIGTERM)
-	<-ctx.Done()
+	<-appCtx.Done()
 	cancel()
 
 	log.Println("Shutting down proxy")
