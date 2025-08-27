@@ -17,8 +17,10 @@ import (
 )
 
 type k8sp struct {
-	proxy *TCPProxy
-	clone *zdap.PublicClone
+	proxy         *TCPProxy
+	clone         *zdap.PublicClone
+	controlServer *http.Server
+	wg            sync.WaitGroup
 }
 
 func useK8sProxy() bool {
@@ -60,6 +62,8 @@ func (p *k8sp) Start(ctx context.Context) {
 	if cfg.ResetAtHhMm != "" {
 		p.setupResetTimer(ctx, cfg.ResetAtHhMm)
 	}
+
+	p.setupControlServer(ctx)
 }
 
 func (p *k8sp) Stop() {
@@ -70,6 +74,7 @@ func (p *k8sp) Stop() {
 	if p.proxy != nil {
 		p.proxy.Stop()
 	}
+	p.wg.Wait()
 }
 
 func (p *k8sp) attachNewClone() *zdap.PublicClone {
@@ -257,6 +262,41 @@ func (p *k8sp) setupResetTimer(ctx context.Context, atTimeStr string) {
 					p.reset()
 				}
 			}
+		}
+	}()
+}
+
+func (p *k8sp) setupControlServer(ctx context.Context) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /clones/reset", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received HTTP /clones/reset command - resetting clone")
+		p.reset()
+		w.Write([]byte("Clone reset successfuly\n"))
+	})
+
+	p.controlServer = &http.Server{
+		Addr:    fmt.Sprintf(":%d", Config().InternalPort),
+		Handler: mux,
+	}
+
+	go func() {
+		log.Printf("Starting HTTP control server on port %d", Config().InternalPort)
+		if err := p.controlServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		<-ctx.Done()
+		log.Printf("Context cancelled, shutting down HTTP control server...")
+
+		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		if err := p.controlServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Error shutting down HTTP server: %v", err)
 		}
 	}()
 }

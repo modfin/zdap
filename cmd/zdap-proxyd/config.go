@@ -17,6 +17,7 @@ type conf struct {
 	Servers        []string `env:"ZDAP_SERVERS"`
 	ResetAtHhMm    string   `env:"ZDAP_RESET_AT_HH_MM"`
 	DestroyOnStop  bool     `env:"ZDAP_DESTROY_ON_STOP"`
+	InternalPort   int      `env:"ZDAP_PROXY_INTERNAL_PORT" envDefault:"8080"`
 }
 
 var (
