@@ -50,7 +50,7 @@ func (p *k8sp) Start(ctx context.Context) {
 	p.clone = p.getExistingClone()
 	if p.clone == nil {
 		log.Printf("Trying to create a new %s clone...\n", cfg.Resource)
-		p.clone = p.attachNewClone()
+		p.clone = p.attachNewClone(time.Time{})
 	}
 
 	p.proxy = &TCPProxy{
@@ -77,7 +77,7 @@ func (p *k8sp) Stop() {
 	p.wg.Wait()
 }
 
-func (p *k8sp) attachNewClone() *zdap.PublicClone {
+func (p *k8sp) attachNewClone(snapCreatedAt time.Time) *zdap.PublicClone {
 	zdapServerScore := func(stat *zdap.ServerStatus) float64 { // higher the better
 		disk := stat.FreeDisk
 		clones := stat.Clones
@@ -94,7 +94,6 @@ func (p *k8sp) attachNewClone() *zdap.PublicClone {
 		}
 		return sum
 	}
-
 	cfg := Config()
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -127,6 +126,15 @@ func (p *k8sp) attachNewClone() *zdap.PublicClone {
 			if err != nil {
 				log.Printf("%s - error getting snaps, error: %v\n", server, err)
 				return
+			}
+			if !snapCreatedAt.IsZero() {
+				filtered := []zdap.PublicSnap{}
+				for _, snap := range res.Snaps {
+					if snap.CreatedAt.Equal(snapCreatedAt) {
+						filtered = append(filtered, snap)
+					}
+				}
+				res.Snaps = filtered
 			}
 			if cfg.ResourceFilter != "" {
 				log.Printf("%s - filter %d snapshots using '%s'\n", server, len(res.Snaps), cfg.ResourceFilter)
@@ -216,11 +224,11 @@ func (p *k8sp) getExistingClone() *zdap.PublicClone {
 	return &activeClones[0]
 }
 
-func (p *k8sp) reset() {
+func (p *k8sp) reset(snapCreatedAt time.Time) {
 	log.Printf("Trying to reset ZDAP resource %s...\n", Config().Resource)
 
 	// Crate a new clone from the latest snapshot
-	newClone := p.attachNewClone()
+	newClone := p.attachNewClone(snapCreatedAt)
 	if newClone == nil {
 		return
 	}
@@ -259,7 +267,7 @@ func (p *k8sp) setupResetTimer(ctx context.Context, atTimeStr string) {
 			case <-ticker.C:
 				h, m, _ := time.Now().Clock()
 				if h == atHH && m == atMM {
-					p.reset()
+					p.reset(time.Time{})
 				}
 			}
 		}
@@ -269,9 +277,20 @@ func (p *k8sp) setupResetTimer(ctx context.Context, atTimeStr string) {
 func (p *k8sp) setupControlServer(ctx context.Context) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /clones/reset", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received HTTP /clones/reset command - resetting clone")
-		p.reset()
-		w.Write([]byte("Clone reset successfuly\n"))
+		snapCreatedAtStr := r.URL.Query().Get("snapCreatedAt")
+		if snapCreatedAtStr != "" {
+			snapCreatedAt, err := time.Parse(time.RFC3339, snapCreatedAtStr)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Invalid snapCreatedAt format: %v", err), http.StatusBadRequest)
+				return
+			}
+			log.Printf("Received HTTP /clones/reset command - resetting clone with specific snapCreatedAt: %s", snapCreatedAtStr)
+			p.reset(snapCreatedAt)
+		} else {
+			log.Printf("Received HTTP /clones/reset command - resetting clone")
+			p.reset(time.Time{})
+		}
+		w.Write([]byte("Clone reset successfully\n"))
 	})
 
 	p.controlServer = &http.Server{
