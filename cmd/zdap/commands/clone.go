@@ -45,7 +45,7 @@ func parsArgs(args []string) (servers []string, resource string, snap time.Time,
 	return
 }
 
-func findServerCandidate(resource string, user string, servers []string, favorPooled bool) (string, error) {
+func findServerCandidate(resource string, user string, servers []string, snapCreatedAt time.Time, favorPooled bool) (string, error) {
 	score := func(stat *zdap.ServerStatus) float64 { // higher the better
 		disk := stat.FreeDisk
 		clones := stat.Clones
@@ -93,6 +93,15 @@ func findServerCandidate(resource string, user string, servers []string, favorPo
 			if err != nil {
 				log.Printf("%s - error getting snaps, error: %v\n", server, err)
 				return
+			}
+			if !snapCreatedAt.IsZero() {
+				filtered := []zdap.PublicSnap{}
+				for _, snap := range res.Snaps {
+					if snap.CreatedAt.Equal(snapCreatedAt) {
+						filtered = append(filtered, snap)
+					}
+				}
+				res.Snaps = filtered
 			}
 			if len(res.Snaps) == 0 {
 				log.Printf("%s - '%s' snapshot not found\n", server, resource)
@@ -281,7 +290,7 @@ func cloneResource(args []string, claimArgs zdap.ClaimArgs) (*zdap.PublicClone, 
 		server = servers[0]
 	}
 	if len(servers) == 0 {
-		server, err = findServerCandidate(resource, cfg.User, cfg.Servers, claimArgs.ClaimPooled)
+		server, err = findServerCandidate(resource, cfg.User, cfg.Servers, snap, claimArgs.ClaimPooled)
 		if err != nil {
 			return nil, fmt.Errorf("could not find a suitable server, %w", err)
 		}
