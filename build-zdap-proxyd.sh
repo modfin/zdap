@@ -1,4 +1,4 @@
-
+#!/bin/sh
 
 VERSION=$(date +%Y-%m-%dT%H.%M.%S)-$(git log -1 --pretty=format:"%h")
 IMAGE_NAME=modfin/zdap-proxy
