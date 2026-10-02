@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine3.22 AS golang
+FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine3.24 AS golang
 WORKDIR /src
 #RUN apk add --no-cache tzdata ca-certificates
 RUN --mount=type=cache,target=/go/pkg/mod/ \
