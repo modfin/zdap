@@ -2,13 +2,14 @@ package commands
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/c2h5oh/datasize"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/urfave/cli/v2"
-	"net/http"
-	"strings"
-	"time"
 )
 
 func filerNonLocalResource(resource []zdap.PublicResource) ([]zdap.PublicResource, error) {
@@ -249,6 +250,9 @@ func ListClones(c *cli.Context) error {
 			for _, resource := range res {
 				for _, snaps := range resource.Snaps {
 					for _, clone := range snaps.Clones {
+						if clone.Broken {
+							continue
+						}
 						fmt.Println(clone.YAML(5432))
 						fmt.Println()
 					}
@@ -282,7 +286,11 @@ func ListClones(c *cli.Context) error {
 						if c == len(snaps.Clones)-1 {
 							c1 = "└"
 						}
-						fmt.Printf("%s %s %s %s\n", rPipe, sPipe, c1, clone.CreatedAt.In(time.UTC).Format(utils.TimestampFormat))
+						extraInfo := ""
+						if clone.Broken {
+							extraInfo = " [server clone broken, must detach/attach to get a working clone]"
+						}
+						fmt.Printf("%s %s %s %s%s\n", rPipe, sPipe, c1, clone.CreatedAt.In(time.UTC).Format(utils.TimestampFormat), extraInfo)
 					}
 				}
 			}
