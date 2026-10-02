@@ -2,8 +2,9 @@ package zdap
 
 import (
 	"fmt"
-	"github.com/modfin/zdap/internal"
 	"time"
+
+	"github.com/modfin/zdap/internal"
 )
 
 type PublicResource struct {
@@ -30,6 +31,7 @@ type PublicClone struct {
 	ClonePooled bool       `json:"clone_pooled"`
 	Healthy     bool       `json:"healthy"`
 	ExpiresAt   *time.Time `json:"expires_at"`
+	Broken      bool       `json:"broken"` // clone exist, but is in a broken state
 }
 
 func (c *PublicClone) YAML(listenPort int) string {

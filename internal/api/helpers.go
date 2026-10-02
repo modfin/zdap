@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +14,8 @@ import (
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 )
+
+var errProxyNotFound = errors.New("could not find proxy container")
 
 func getStatus(dss *zfs.Dataset, app *core.Core) (zdap.ServerStatus, error) {
 	return app.ServerStatus(dss)
@@ -125,7 +129,12 @@ func getClones(dss *zfs.Dataset, owner string, snap time.Time, resource string, 
 	})
 	for i, c := range clones {
 		c.Port, err = getPortClone(c.Name, app)
-		if err != nil {
+		if errors.Is(err, errProxyNotFound) {
+			// The clone's containers have disappeared. Keep listing it (port 0) so
+			// that it stays visible and can be destroyed, instead of failing the request.
+			log.Printf("warning: %v", err)
+			c.Broken = true
+		} else if err != nil {
 			return nil, err
 		}
 		clones[i] = c
@@ -151,6 +160,6 @@ func getPortClone(clone string, app *core.Core) (int, error) {
 			}
 		}
 	}
-	return 0, fmt.Errorf("could not find proxy container for %s", clone)
+	return 0, fmt.Errorf("%w for %s", errProxyNotFound, clone)
 
 }

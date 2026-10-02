@@ -205,8 +205,12 @@ func (p *k8sp) getExistingClone() *zdap.PublicClone {
 			continue
 		}
 
-		if len(clones) > 0 {
-			activeClones = append(activeClones, clones...)
+		for _, clone := range clones {
+			if clone.Broken {
+				log.Printf("WARNING: clone %s on %s is ignored since it's flagged as broken\n", clone.Name, s)
+				continue
+			}
+			activeClones = append(activeClones, clone)
 		}
 	}
 
