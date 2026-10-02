@@ -4,7 +4,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/caarlos0/env"
+	"github.com/caarlos0/env/v11"
 	"github.com/urfave/cli/v2"
 )
 
