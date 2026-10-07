@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/config"
 	"github.com/modfin/zdap/internal/core"
@@ -20,11 +20,11 @@ import (
 func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	e := echo.New()
 
-	e.Use(middleware.Logger())
+	e.Use(middleware.RequestLogger())
 	e.Use(middleware.RemoveTrailingSlash())
 
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			auth := c.Request().Header.Get("auth")
 			if len(auth) == 0 {
 				fmt.Println(c.Request().Header)
@@ -35,7 +35,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		}
 	})
 
-	e.GET("/status", func(c echo.Context) error {
+	e.GET("/status", func(c *echo.Context) error {
 		dss, err := z.Open()
 		if err != nil {
 			return fmt.Errorf("could not open dataset, %w", err)
@@ -44,12 +44,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 
 		res, err := getStatus(dss, app)
 		if err != nil {
-			return fmt.Errorf("could not retrive status, %w", err)
+			return fmt.Errorf("could not retrieve status, %w", err)
 		}
 		return c.JSON(http.StatusOK, res)
 	})
 
-	e.GET("/resources", func(c echo.Context) error {
+	e.GET("/resources", func(c *echo.Context) error {
 		dss, err := z.Open()
 		if err != nil {
 			return err
@@ -63,7 +63,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return c.JSON(http.StatusOK, res)
 	})
 
-	e.GET("/resources/:resource", func(c echo.Context) error {
+	e.GET("/resources/:resource", func(c *echo.Context) error {
 		dss, err := z.Open()
 		if err != nil {
 			return err
@@ -77,7 +77,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return c.JSON(http.StatusOK, res)
 	})
 
-	e.GET("/resources/:resource/clones", func(c echo.Context) error {
+	e.GET("/resources/:resource/clones", func(c *echo.Context) error {
 		dss, err := z.Open()
 		if err != nil {
 			return err
@@ -98,7 +98,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return c.JSON(http.StatusOK, clones)
 	})
 
-	e.DELETE("/resources/:resource/clones", func(c echo.Context) error {
+	e.DELETE("/resources/:resource/clones", func(c *echo.Context) error {
 		dss, err := z.Open()
 		if err != nil {
 			return err
@@ -120,7 +120,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return c.NoContent(http.StatusOK)
 	})
 
-	e.DELETE("/resources/:resource/clones/:time", func(c echo.Context) error {
+	e.DELETE("/resources/:resource/clones/:time", func(c *echo.Context) error {
 		dss, err := z.Open()
 		if err != nil {
 			return err
@@ -150,7 +150,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return errors.New("could not find clone to destroy")
 	})
 
-	e.GET("/resources/:resource/snaps", func(c echo.Context) error {
+	e.GET("/resources/:resource/snaps", func(c *echo.Context) error {
 		dss, err := z.Open()
 		if err != nil {
 			return err
@@ -164,7 +164,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return c.JSON(http.StatusOK, res)
 	})
 
-	e.POST("/resources/:resource/snaps", func(c echo.Context) error {
+	e.POST("/resources/:resource/snaps", func(c *echo.Context) error {
 		resource := c.Param("resource")
 
 		dss, err := z.Open()
@@ -190,7 +190,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return c.JSON(http.StatusOK, clone)
 	})
 
-	e.POST("/resources/:resource/snaps/:createdAt", func(c echo.Context) error {
+	e.POST("/resources/:resource/snaps/:createdAt", func(c *echo.Context) error {
 		resource := c.Param("resource")
 		at, err := time.Parse(utils.TimestampFormat, c.Param("createdAt"))
 		if err != nil {
@@ -210,7 +210,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return c.JSON(http.StatusOK, clone)
 	})
 
-	e.GET("/resources/:resource/snaps/:createdAt", func(c echo.Context) error {
+	e.GET("/resources/:resource/snaps/:createdAt", func(c *echo.Context) error {
 		at, err := time.Parse(utils.TimestampFormat, c.Param("createdAt"))
 		if err != nil {
 			return err
@@ -229,7 +229,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return c.JSON(http.StatusOK, res)
 	})
 
-	e.POST("/resources/:resource/claim", func(c echo.Context) error {
+	e.POST("/resources/:resource/claim", func(c *echo.Context) error {
 		resource := c.Param("resource")
 		timeoutStr := c.QueryParam("ttl")
 		timeout := internal.DefaultClaimTimeoutSeconds * time.Second
@@ -248,7 +248,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return c.JSON(http.StatusOK, clone)
 	})
 
-	e.DELETE("/resources/:resource/claims/:claimId", func(c echo.Context) error {
+	e.DELETE("/resources/:resource/claims/:claimId", func(c *echo.Context) error {
 		resource := c.Param("resource")
 		claimId := c.Param("claimId")
 
