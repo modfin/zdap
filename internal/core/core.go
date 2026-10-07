@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/modfin/henry/slicez"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
@@ -199,20 +198,20 @@ func (c *Core) GetResources() []internal.Resource {
 	return c.resources
 }
 
-func (c *Core) GetCloneContainers(cloneName string) ([]types.Container, error) {
+func (c *Core) GetCloneContainers(cloneName string) ([]container.Summary, error) {
 
 	cons, found := c.ttlCache.Get("current_containers")
 	if !found {
-		containers, err := c.docker.ContainerList(context.Background(), container.ListOptions{})
+		containers, err := c.docker.ContainerList(context.Background(), client.ContainerListOptions{})
 		if err != nil {
 			return nil, err
 		}
-		cons = containers
+		cons = containers.Items
 		c.ttlCache.Set("current_containers", cons, 2*time.Second)
 	}
-	containers := cons.([]types.Container)
+	containers := cons.([]container.Summary)
 
-	var cc []types.Container
+	var cc []container.Summary
 	for _, c := range containers {
 		for _, name := range c.Names {
 			if strings.HasPrefix(name, "/"+cloneName) {

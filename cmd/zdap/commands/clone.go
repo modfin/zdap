@@ -18,8 +18,7 @@ import (
 	"time"
 
 	"github.com/c2h5oh/datasize"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal/compose"
 	"github.com/modfin/zdap/internal/utils"
@@ -496,14 +495,15 @@ func AttachClone(c *cli.Context) error {
 
 	// Try to pull zdap-proxy image, since it sometimes gets overwritten in the dev environment when containers are being rebuilt
 	proxyImageName := "modfin/zdap-proxy:latest"
-	dockerCli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerCli, err := client.New(client.FromEnv)
 	if err != nil {
 		fmt.Printf("Failed to get a Docker client, won't try to pull modfin/zdap-proxy image. Error: %v\n", err)
 	} else {
-		reader, err := dockerCli.ImagePull(context.Background(), proxyImageName, image.PullOptions{})
+		reader, err := dockerCli.ImagePull(context.Background(), proxyImageName, client.ImagePullOptions{})
 		if err != nil {
 			return err
 		}
+		defer reader.Close()
 		_, err = io.Copy(os.Stdout, reader)
 		if err != nil {
 			return err

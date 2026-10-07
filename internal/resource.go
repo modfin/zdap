@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/docker/docker/api/types/strslice"
 	"github.com/modfin/henry/slicez"
 )
 
@@ -49,14 +48,14 @@ type ContainerParams struct {
 	ZfsProperties []string `yaml:"zfs"`
 }
 
-func (r Resource) BaseCmd() strslice.StrSlice {
+func (r Resource) BaseCmd() []string {
 	if len(r.Docker.Cmd) == 0 && len(r.RestoreParams.Cmd) == 0 {
 		return nil
 	}
 	return slicez.Concat(r.Docker.Cmd, r.RestoreParams.Cmd)
 }
 
-func (r Resource) BaseEnv() strslice.StrSlice {
+func (r Resource) BaseEnv() []string {
 	if len(r.Docker.Env) == 0 && len(r.RestoreParams.Env) == 0 {
 		return nil
 	}
@@ -64,7 +63,7 @@ func (r Resource) BaseEnv() strslice.StrSlice {
 	return slicez.Concat(r.Docker.Env, r.RestoreParams.Env)
 }
 
-func (r Resource) BaseEntrypoint() strslice.StrSlice {
+func (r Resource) BaseEntrypoint() []string {
 	if len(r.Docker.Entrypoint) == 0 && len(r.RestoreParams.Entrypoint) == 0 {
 		return nil
 	}
@@ -75,14 +74,14 @@ func (r Resource) BaseZfsProperties() map[string]string {
 	return r.zfsPropMap(r.RestoreParams.ZfsProperties)
 }
 
-func (r Resource) CloneCmd() strslice.StrSlice {
+func (r Resource) CloneCmd() []string {
 	if len(r.Docker.Cmd) == 0 && len(r.CloneParams.Cmd) == 0 {
 		return nil
 	}
 	return slicez.Concat(r.Docker.Cmd, r.CloneParams.Cmd)
 }
 
-func (r Resource) CloneEnv() strslice.StrSlice {
+func (r Resource) CloneEnv() []string {
 	if len(r.Docker.Env) == 0 && len(r.CloneParams.Env) == 0 {
 		return nil
 	}
@@ -90,7 +89,7 @@ func (r Resource) CloneEnv() strslice.StrSlice {
 	return slicez.Concat(r.Docker.Env, r.CloneParams.Env)
 }
 
-func (r Resource) CloneEntrypoint() strslice.StrSlice {
+func (r Resource) CloneEntrypoint() []string {
 	if len(r.Docker.Entrypoint) == 0 && len(r.CloneParams.Entrypoint) == 0 {
 		return nil
 	}

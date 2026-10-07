@@ -5,17 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"regexp"
 	"sort"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	"github.com/modfin/henry/slicez"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
@@ -139,83 +138,108 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 
 	// Pull zdap-proxy image
 	proxyImageName := "modfin/zdap-proxy:latest"
-	reader, err := docker.ImagePull(context.Background(), proxyImageName, image.PullOptions{})
+	reader, err := docker.ImagePull(context.Background(), proxyImageName, client.ImagePullOptions{})
 	if err != nil {
 		return nil, err
 	}
+	defer reader.Close()
 	_, err = io.Copy(os.Stdout, reader)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := docker.ContainerCreate(context.Background(), &container.Config{
-		Image:      r.Docker.Image,
-		Entrypoint: r.CloneEntrypoint(),
-		Cmd:        r.CloneCmd(),
-		Env:        r.CloneEnv(),
-		Tty:        false,
-		Labels:     map[string]string{"owner": owner},
-		Domainname: cloneName,
-		ExposedPorts: nat.PortSet{
-			nat.Port(fmt.Sprintf("%d/tcp", r.Docker.Port)): struct{}{},
-		},
-		Healthcheck: &container.HealthConfig{
-			Test:        []string{"CMD-SHELL", r.Docker.Healthcheck},
-			Interval:    1 * time.Second,
-			Timeout:     1 * time.Second,
-			StartPeriod: 1 * time.Second,
-			Retries:     5,
-		},
-	}, &container.HostConfig{
-		RestartPolicy: container.RestartPolicy{
-			Name:              "unless-stopped",
-			MaximumRetryCount: 0,
-		},
-		ShmSize: r.Docker.Shm,
-		Mounts: []mount.Mount{
-			{
-				Type:   mount.TypeBind,
-				Source: path,
-				Target: r.Docker.Volume,
-			},
-		},
-	}, networkConfig, nil, cloneName)
+	dbPort, err := network.ParsePort(fmt.Sprintf("%d/tcp", r.Docker.Port))
 	if err != nil {
 		return nil, err
 	}
-	err = docker.ContainerStart(context.Background(), resp.ID, container.StartOptions{})
+	proxyTCPPort, err := network.ParsePort(fmt.Sprintf("%d/tcp", port))
+	if err != nil {
+		return nil, err
+	}
+	proxyUDPPort, err := network.ParsePort(fmt.Sprintf("%d/udp", port))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := docker.ContainerCreate(context.Background(), client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image:      r.Docker.Image,
+			Entrypoint: r.CloneEntrypoint(),
+			Cmd:        r.CloneCmd(),
+			Env:        r.CloneEnv(),
+			Tty:        false,
+			Labels:     map[string]string{"owner": owner},
+			Domainname: cloneName,
+			ExposedPorts: network.PortSet{
+				dbPort: struct{}{},
+			},
+			Healthcheck: &container.HealthConfig{
+				Test:        []string{"CMD-SHELL", r.Docker.Healthcheck},
+				Interval:    1 * time.Second,
+				Timeout:     1 * time.Second,
+				StartPeriod: 1 * time.Second,
+				Retries:     5,
+			},
+		},
+		HostConfig: &container.HostConfig{
+			RestartPolicy: container.RestartPolicy{
+				Name:              "unless-stopped",
+				MaximumRetryCount: 0,
+			},
+			ShmSize: r.Docker.Shm,
+			Mounts: []mount.Mount{
+				{
+					Type:   mount.TypeBind,
+					Source: path,
+					Target: r.Docker.Volume,
+				},
+			},
+		},
+		NetworkingConfig: networkConfig,
+		Name:             cloneName,
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Ignore ContainerStartResult since it's currently is an empty struct
+	_, err = docker.ContainerStart(context.Background(), resp.ID, client.ContainerStartOptions{})
 	if err != nil {
 		return nil, err
 	}
 
 	fmt.Println(" - db container name", cloneName)
 
-	resp, err = docker.ContainerCreate(context.Background(), &container.Config{
-		Image: proxyImageName,
-		Env: []string{
-			fmt.Sprintf("LISTEN_PORT=%d", port),
-			fmt.Sprintf("TARGET_ADDRESS=%s:%d", cloneName, r.Docker.Port),
+	resp, err = docker.ContainerCreate(context.Background(), client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image: proxyImageName,
+			Env: []string{
+				fmt.Sprintf("LISTEN_PORT=%d", port),
+				fmt.Sprintf("TARGET_ADDRESS=%s:%d", cloneName, r.Docker.Port),
+			},
+			ExposedPorts: network.PortSet{
+				proxyTCPPort: struct{}{},
+				proxyUDPPort: struct{}{},
+			},
+			Labels:     map[string]string{"owner": owner},
+			Domainname: fmt.Sprintf("%s-proxy", cloneName),
 		},
-		ExposedPorts: nat.PortSet{
-			nat.Port(fmt.Sprintf("%d/tcp", port)): struct{}{},
-			nat.Port(fmt.Sprintf("%d/udp", port)): struct{}{},
+		HostConfig: &container.HostConfig{
+			RestartPolicy: container.RestartPolicy{
+				Name:              "unless-stopped",
+				MaximumRetryCount: 0,
+			},
+			PortBindings: network.PortMap{
+				proxyTCPPort: []network.PortBinding{{HostIP: netip.IPv4Unspecified(), HostPort: fmt.Sprintf("%d/tcp", port)}},
+				proxyUDPPort: []network.PortBinding{{HostIP: netip.IPv4Unspecified(), HostPort: fmt.Sprintf("%d/udp", port)}},
+			},
 		},
-		Labels:     map[string]string{"owner": owner},
-		Domainname: fmt.Sprintf("%s-proxy", cloneName),
-	}, &container.HostConfig{
-		RestartPolicy: container.RestartPolicy{
-			Name:              "unless-stopped",
-			MaximumRetryCount: 0,
-		},
-		PortBindings: nat.PortMap{
-			nat.Port(fmt.Sprintf("%d/tcp", port)): []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d/tcp", port)}},
-			nat.Port(fmt.Sprintf("%d/udp", port)): []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d/udp", port)}},
-		},
-	}, networkConfig, nil, fmt.Sprintf("%s-proxy", cloneName))
+		NetworkingConfig: networkConfig,
+		Name:             fmt.Sprintf("%s-proxy", cloneName),
+	})
 	if err != nil {
 		return nil, err
 	}
-	err = docker.ContainerStart(context.Background(), resp.ID, container.StartOptions{})
+	_, err = docker.ContainerStart(context.Background(), resp.ID, client.ContainerStartOptions{})
 	if err != nil {
 		return nil, err
 	}
