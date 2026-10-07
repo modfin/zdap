@@ -4,19 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"os"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/modfin/zdap/internal/api"
 	"github.com/modfin/zdap/internal/config"
 	"github.com/modfin/zdap/internal/core"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 	"github.com/urfave/cli/v2"
-	"os"
-	"sort"
-	"strings"
-	"time"
 )
 
 func main() {
@@ -31,7 +31,7 @@ func main() {
 
 		configDir := cfg.ConfigDir
 		z = zfs.NewZFS(cfg.ZPool)
-		docker, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+		docker, err = client.New(client.FromEnv)
 		if err != nil {
 			return err
 		}
@@ -325,7 +325,7 @@ func main() {
 	}
 }
 
-func destroyContainer(c types.Container, docker *client.Client) error {
+func destroyContainer(c container.Summary, docker *client.Client) error {
 	name := c.ID
 	if len(c.Names) > 0 {
 		name = c.Names[0]
@@ -334,32 +334,38 @@ func destroyContainer(c types.Container, docker *client.Client) error {
 	if c.State == "running" {
 		fmt.Println("- Killing", name)
 		d := 0
-		err := docker.ContainerStop(context.Background(), c.ID, container.StopOptions{Timeout: &d})
+		// Ignore ContainerStopResult since it currently is an empty struct
+		_, err := docker.ContainerStop(context.Background(), c.ID, client.ContainerStopOptions{Timeout: &d})
 		if err != nil {
 			return err
 		}
-		w, e := docker.ContainerWait(context.Background(), c.ID, container.WaitConditionNotRunning)
-
+		w := docker.ContainerWait(context.Background(), c.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 		select {
-		case <-w:
-		case err = <-e:
-			return err
+		case wr := <-w.Result:
+			if wr.Error != nil {
+				return fmt.Errorf("stopContainer error: %s", wr.Error.Message)
+			}
+			// The exit code (wr.StatusCode) is deliberately ignored: a stop that escalates to SIGKILL (timeout 0 in DestroyClone)
+			// exits with 137, and that is still a successfully stopped container.
+		case err = <-w.Error:
+			if err != nil {
+				return fmt.Errorf("stopContainer: %w", err)
+			}
 		}
 	}
 	fmt.Println("- Removing", name)
-	return docker.ContainerRemove(context.Background(), c.ID, container.RemoveOptions{
-		Force: true,
-	})
+	_, err := docker.ContainerRemove(context.Background(), c.ID, client.ContainerRemoveOptions{Force: true})
+	return err
 }
 
 func destroyAll(docker *client.Client, z *zfs.ZFS) error {
 	fmt.Println("Destroying Containers")
 
-	cs, err := docker.ContainerList(context.Background(), container.ListOptions{All: true})
+	cs, err := docker.ContainerList(context.Background(), client.ContainerListOptions{All: true})
 	if err != nil {
 		return err
 	}
-	for _, c := range cs {
+	for _, c := range cs.Items {
 		for _, name := range c.Names {
 			if strings.HasPrefix(name, "/zdap-") {
 				err = destroyContainer(c, docker)
@@ -394,11 +400,11 @@ func destroyClones(docker *client.Client, z *zfs.ZFS) error {
 		isClone[c.Name] = true
 	}
 
-	cs, err := docker.ContainerList(context.Background(), container.ListOptions{All: true})
+	cs, err := docker.ContainerList(context.Background(), client.ContainerListOptions{All: true})
 	if err != nil {
 		return err
 	}
-	for _, c := range cs {
+	for _, c := range cs.Items {
 		for _, name := range c.Names {
 			name := strings.TrimSuffix(name, "-proxy")
 			name = strings.TrimPrefix(name, "/")
@@ -444,11 +450,11 @@ func destroyClone(clone string, docker *client.Client, z *zfs.ZFS) error {
 		return fmt.Errorf("could not find clone %s", clone)
 	}
 
-	cs, err := docker.ContainerList(context.Background(), container.ListOptions{All: true})
+	cs, err := docker.ContainerList(context.Background(), client.ContainerListOptions{All: true})
 	if err != nil {
 		return err
 	}
-	for _, c := range cs {
+	for _, c := range cs.Items {
 		for _, name := range c.Names {
 			if strings.HasPrefix(name, "/"+clone) {
 				err = destroyContainer(c, docker)
