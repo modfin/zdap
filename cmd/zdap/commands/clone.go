@@ -193,7 +193,7 @@ func CloneResource(c *cli.Context) error {
 		return err
 	}
 	fmt.Println("Attach to project by running, run:")
-	fmt.Printf("zdap attach --new=false @%s:%d %s %s\n", clone.Server, clone.Port, clone.Resource, clone.CreatedAt.Format(utils.TimestampFormat))
+	fmt.Printf("zdap attach --new=false @%s:%d %s %s\n", clone.Server, clone.APIPort, clone.Resource, clone.CreatedAt.Format(utils.TimestampFormat))
 	return nil
 }
 
