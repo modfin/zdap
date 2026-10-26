@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -423,5 +424,45 @@ func TestRemoveConcurrent(t *testing.T) {
 
 	if s, ok := comp.Services["test-37"]; !ok || s.Name != "test-37" {
 		t.Fatalf("expected service name to be test-37, got %s", s.Name)
+	}
+}
+
+func TestKeepsComments(t *testing.T) {
+	// Arrange
+	dest := "test_keepscomments.yaml"
+
+	err := os.WriteFile(dest, []byte(`# top comment
+services:
+    # db comment
+    db:
+        image: postgres # line comment
+volumes:
+    data: {}
+`), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(dest)
+
+	// Act
+	err = Add(dest, "test", &Container{Image: "modfin/zdap-proxy:latest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RemoveClone(dest, []string{"test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	verify, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"# top comment", "# db comment", "# line comment", "volumes:"} {
+		if !strings.Contains(string(verify), want) {
+			t.Fatalf("expected %q to be kept, got:\n%s", want, verify)
+		}
 	}
 }
