@@ -12,4 +12,5 @@ func Test_loadResources(t *testing.T) {
 	assert.Equal(t, "postgres-dbname", rs[0].Name)
 	assert.Equal(t, 8, rs[0].ClonePool.MinClones)
 	assert.Equal(t, 16, rs[0].ClonePool.MaxClones)
+	assert.Equal(t, []string{"/srv/zdap/dumps:/dumps:ro", "/srv/zdap/scratch:/scratch"}, rs[0].RestoreParams.Binds)
 }
