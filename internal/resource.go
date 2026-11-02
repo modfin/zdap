@@ -46,6 +46,7 @@ type ContainerParams struct {
 	Entrypoint    []string
 	Cmd           []string
 	ZfsProperties []string `yaml:"zfs"`
+	Binds         []string `yaml:"binds"` // "<host-path>:<container-path>[:ro]", only used by restore_params
 }
 
 func (r Resource) BaseCmd() []string {

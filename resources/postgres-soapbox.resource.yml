@@ -11,6 +11,13 @@ docker:
 
   ## Health Check must exist in order to know when the container is really started
   healthcheck: echo SELECT 1 | psql -U postgres
+
+## Optional. Extra bind-mounts for the restore container, "<host-path>:<container-path>[:ro]".
+## Missing host directories are created (mode 0777) before the container is started.
+#restore_params:
+#  binds:
+#    - /srv/zdap/dumps:/dumps:ro
+#    - /srv/zdap/scratch:/scratch
 cron: 15 6 * * *
 retrieval: ./postgres-soapbox.retrieval.sh
 creation: ./postgres-soapbox.creation.sh

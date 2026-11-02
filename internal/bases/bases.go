@@ -3,7 +3,9 @@ package bases
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +34,12 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 		cmd.Stderr = os.Stderr
 		err := cmd.Run()
 		return out.String(), err
+	}
+
+	// Resolved before the dataset is created, so an invalid bind doesn't leave an orphaned dataset behind
+	extraMounts, err := restoreMounts(r)
+	if err != nil {
+		return err
 	}
 
 	t := time.Now()
@@ -64,13 +72,13 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 				MaximumRetryCount: 0,
 			},
 			ShmSize: r.Docker.Shm,
-			Mounts: []mount.Mount{
+			Mounts: append([]mount.Mount{
 				{
 					Type:   mount.TypeBind,
 					Source: path,
 					Target: r.Docker.Volume,
 				},
-			},
+			}, extraMounts...),
 		},
 		Name: name,
 	})
@@ -129,6 +137,60 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 		snapCompletedCallback()
 	}
 	return err
+}
+
+// restoreMounts parses restore_params.binds ("<host-path>:<container-path>[:ro|rw]") into bind mounts,
+// creating any host directories that don't exist yet
+func restoreMounts(r *internal.Resource) ([]mount.Mount, error) {
+	var mounts []mount.Mount
+	for _, b := range r.RestoreParams.Binds {
+		parts := strings.Split(b, ":")
+
+		readOnly := false
+		if len(parts) == 3 {
+			switch parts[2] {
+			case "ro":
+				readOnly = true
+			case "rw":
+			default:
+				return nil, fmt.Errorf("resource %s: invalid bind %q, unknown mode %q (expected ro or rw)", r.Name, b, parts[2])
+			}
+			parts = parts[:2]
+		}
+		if len(parts) != 2 || !filepath.IsAbs(parts[0]) || !filepath.IsAbs(parts[1]) {
+			return nil, fmt.Errorf("resource %s: invalid bind %q, expected <abs-host-path>:<abs-container-path>[:ro]", r.Name, b)
+		}
+		source, target := parts[0], parts[1]
+
+		if filepath.Clean(target) == filepath.Clean(r.Docker.Volume) {
+			return nil, fmt.Errorf("resource %s: bind %q collides with docker.volume", r.Name, b)
+		}
+		if err := ensureDir(source); err != nil {
+			return nil, fmt.Errorf("resource %s: could not create bind source %s: %w", r.Name, source, err)
+		}
+
+		mounts = append(mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   source,
+			Target:   target,
+			ReadOnly: readOnly,
+		})
+	}
+	return mounts, nil
+}
+
+// ensureDir creates path if it is missing, writable for everyone so that the non-root user inside the container can use it
+func ensureDir(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(path, 0o777); err != nil {
+		return err
+	}
+	// MkdirAll is subject to the umask, so the leaf directory is chmod'ed explicitly
+	return os.Chmod(path, 0o777)
 }
 
 const networkName = "zdap_proxy_net"

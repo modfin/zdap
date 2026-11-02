@@ -8,6 +8,10 @@ docker:
 
   ## Health Check must exist in order to know when the container is really started
   healthcheck: echo SELECT 1 | psql -U postgres
+restore_params:
+  binds:
+    - /srv/zdap/dumps:/dumps:ro
+    - /srv/zdap/scratch:/scratch
 cron: 45 4 * * *
 retrieval: ./postgres-dbname.retrieval.sh
 creation: ./postgres-dbname.creation.sh
