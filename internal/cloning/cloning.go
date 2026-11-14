@@ -93,7 +93,11 @@ func (c *CloneContext) GetLatestResourceSnap(lst *zfs.Listing, resourceName stri
 	return snaps[0], nil
 }
 
-func createClone(lst *zfs.Listing, owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, clonePooled bool) (*zdap.PublicClone, error) {
+// createClone builds a clone: the ZFS dataset, the database container on top
+// of it and the proxy in front of that. It is all-or-nothing. If any step
+// after the dataset exists fails, the dataset and whatever containers were
+// created are torn down again before returning.
+func createClone(lst *zfs.Listing, owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, clonePooled bool) (clone *zdap.PublicClone, err error) {
 	net, err := bases.EnsureNetwork(docker)
 	if err != nil {
 		return nil, err
@@ -128,6 +132,32 @@ func createClone(lst *zfs.Listing, owner string, snap string, r *internal.Resour
 		return nil, err
 	}
 	fmt.Println(" - clone name", cloneName)
+
+	// The dataset exists from here on, so every later failure has to take it
+	// down again. Nothing records a clone anywhere else: zdap discovers clones
+	// by listing the pool, so a half-built one is indistinguishable from a real
+	// one to /resources/:resource/clones and to the clone pool, and nothing
+	// ever reclaims it. That is how the pool accumulates datasets with no
+	// container, and ports that look taken.
+	//
+	// This is a flag rather than a check on the returned error because echo
+	// recovers panics in handlers: a panic in here does not stop zdapd, it just
+	// returns a 500, and the dataset would be left behind all the same.
+	done := false
+	defer func() {
+		if done {
+			return
+		}
+		fmt.Println(" - clone failed, rolling back", cloneName)
+		rerr := bases.DestroyClone(cloneName, docker, z)
+		if rerr != nil {
+			// The leak we were trying to avoid happened anyway. Say so in the
+			// error rather than only on stdout, so the caller reports a name
+			// someone can clean up by hand.
+			fmt.Printf(" - rollback of %s failed: %v\n", cloneName, rerr)
+			err = errors.Join(err, fmt.Errorf("rollback of %s failed, it is left on the pool: %w", cloneName, rerr))
+		}
+	}()
 
 	// Pull zdap-proxy image
 	proxyImageName := "modfin/zdap-proxy:latest"
@@ -264,6 +294,7 @@ func createClone(lst *zfs.Listing, owner string, snap string, r *internal.Resour
 		return nil, err
 	}
 
+	done = true
 	return &zdap.PublicClone{
 		Name:      cloneName,
 		Resource:  r.Name,
