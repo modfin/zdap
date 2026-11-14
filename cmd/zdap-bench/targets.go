@@ -63,7 +63,11 @@ type resourceInfo struct {
 func discover(c *client, want string, mutating bool) ([]target, error) {
 	var resources []resourceInfo
 	if err := c.getJSON("/resources", &resources); err != nil {
-		return nil, fmt.Errorf("discovering resources: %w", err)
+		// Still worth measuring the endpoints that need nothing discovered:
+		// a server that cannot list its resources is exactly the case where
+		// the ZFS counters are worth looking at.
+		fmt.Printf("resource   could not be discovered: %v\n", err)
+		return undiscoverableTargets(err), nil
 	}
 	if len(resources) == 0 {
 		return nil, errors.New("zdapd reports no resources, nothing to benchmark")
@@ -225,4 +229,24 @@ func destroyNewestClone(c *client, base string) error {
 		}
 	}
 	return c.doJSON("DELETE", base+"/clones/"+newest.Format(timestampFormat), nil)
+}
+
+// undiscoverableTargets is the fallback when GET /resources does not answer:
+// the two endpoints that take no path parameters are still benchmarked, and
+// the rest are reported as skipped with the reason.
+func undiscoverableTargets(cause error) []target {
+	ts := []target{
+		{Name: "GET  /status", Pattern: "/status", Method: "GET", URL: "/status"},
+		{Name: "GET  /resources", Pattern: "/resources", Method: "GET", URL: "/resources"},
+	}
+	reason := fmt.Sprintf("needs a resource, and /resources failed: %v", cause)
+	for _, name := range []string{
+		"GET  /resources/:resource",
+		"GET  /resources/:resource/snaps",
+		"GET  /resources/:resource/clones",
+		"GET  /resources/:resource/snaps/:createdAt",
+	} {
+		ts = append(ts, target{Name: name, Skip: reason})
+	}
+	return ts
 }

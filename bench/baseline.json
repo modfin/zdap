@@ -1,0 +1,219 @@
+{
+  "generated_at": "2026-11-14T12:12:14.681681606+01:00",
+  "addr": "http://127.0.0.1:43211",
+  "resource": "postgres-boris",
+  "requests_per_endpoint": 5,
+  "warmup_per_endpoint": 1,
+  "results": [
+    {
+      "name": "GET  /status",
+      "method": "GET",
+      "pattern": "/status",
+      "url": "/status",
+      "resource": "postgres-boris",
+      "mutating": false,
+      "requests": 5,
+      "statuses": {
+        "0": 5
+      },
+      "errors": [
+        "Get \"http://127.0.0.1:43211/status\": EOF"
+      ],
+      "overlapped": 0,
+      "client_ms_avg": 42.656,
+      "client_ms_min": 35.16,
+      "client_ms_max": 71.84,
+      "server_ms_avg": 34.93411,
+      "server_ms_max": 36.33167,
+      "resp_bytes_avg": 0,
+      "ops_per_request": {
+        "op.dataset_open_recursive": 1,
+        "op.dataset_path": 99,
+        "op.dataset_snapshots": 36,
+        "op.get_user_property": 30,
+        "op.pool_open": 1,
+        "vol.dataset_handles": 34,
+        "vol.kernel_ioctls_est": 253,
+        "vol.property_table_loads": 34,
+        "vol.property_values": 3094
+      },
+      "libzfs_calls_per_request": 167
+    },
+    {
+      "name": "GET  /resources",
+      "method": "GET",
+      "pattern": "/resources",
+      "url": "/resources",
+      "resource": "postgres-boris",
+      "mutating": false,
+      "requests": 5,
+      "statuses": {
+        "200": 5
+      },
+      "overlapped": 0,
+      "client_ms_avg": 36.6948,
+      "client_ms_min": 35.867,
+      "client_ms_max": 37.942,
+      "server_ms_avg": 36.3081184,
+      "server_ms_max": 37.606306,
+      "resp_bytes_avg": 4996,
+      "ops_per_request": {
+        "op.dataset_open_recursive": 1,
+        "op.dataset_path": 1485,
+        "op.dataset_snapshots": 540,
+        "op.get_user_property": 450,
+        "vol.dataset_handles": 34,
+        "vol.kernel_ioctls_est": 251,
+        "vol.property_table_loads": 34,
+        "vol.property_values": 3094
+      },
+      "libzfs_calls_per_request": 2476
+    },
+    {
+      "name": "GET  /resources/:resource",
+      "method": "GET",
+      "pattern": "/resources/:resource",
+      "url": "/resources/postgres-boris",
+      "resource": "postgres-boris",
+      "mutating": false,
+      "requests": 5,
+      "statuses": {
+        "200": 5
+      },
+      "overlapped": 0,
+      "client_ms_avg": 35.913199999999996,
+      "client_ms_min": 35.163,
+      "client_ms_max": 36.645,
+      "server_ms_avg": 35.573118,
+      "server_ms_max": 36.331251,
+      "resp_bytes_avg": 324,
+      "ops_per_request": {
+        "op.dataset_open_recursive": 1,
+        "op.dataset_path": 99,
+        "op.dataset_snapshots": 36,
+        "op.get_user_property": 30,
+        "vol.dataset_handles": 34,
+        "vol.kernel_ioctls_est": 251,
+        "vol.property_table_loads": 34,
+        "vol.property_values": 3094
+      },
+      "libzfs_calls_per_request": 166
+    },
+    {
+      "name": "GET  /resources/:resource/snaps",
+      "method": "GET",
+      "pattern": "/resources/:resource/snaps",
+      "url": "/resources/postgres-boris/snaps",
+      "resource": "postgres-boris",
+      "mutating": false,
+      "requests": 5,
+      "statuses": {
+        "200": 5
+      },
+      "overlapped": 0,
+      "client_ms_avg": 36.2662,
+      "client_ms_min": 34.957,
+      "client_ms_max": 37.73,
+      "server_ms_avg": 35.9371124,
+      "server_ms_max": 37.411513,
+      "resp_bytes_avg": 141,
+      "ops_per_request": {
+        "op.dataset_open_recursive": 1,
+        "op.dataset_path": 99,
+        "op.dataset_snapshots": 36,
+        "op.get_user_property": 30,
+        "vol.dataset_handles": 34,
+        "vol.kernel_ioctls_est": 251,
+        "vol.property_table_loads": 34,
+        "vol.property_values": 3094
+      },
+      "libzfs_calls_per_request": 166
+    },
+    {
+      "name": "GET  /resources/:resource/clones",
+      "method": "GET",
+      "pattern": "/resources/:resource/clones",
+      "url": "/resources/postgres-boris/clones",
+      "resource": "postgres-boris",
+      "mutating": false,
+      "requests": 5,
+      "statuses": {
+        "200": 5
+      },
+      "overlapped": 0,
+      "client_ms_avg": 35.4308,
+      "client_ms_min": 34.762,
+      "client_ms_max": 36.196,
+      "server_ms_avg": 35.1094296,
+      "server_ms_max": 35.892077,
+      "resp_bytes_avg": 5,
+      "ops_per_request": {
+        "op.dataset_open_recursive": 1,
+        "op.dataset_path": 99,
+        "op.dataset_snapshots": 36,
+        "op.get_user_property": 30,
+        "vol.dataset_handles": 34,
+        "vol.kernel_ioctls_est": 251,
+        "vol.property_table_loads": 34,
+        "vol.property_values": 3094
+      },
+      "libzfs_calls_per_request": 166
+    },
+    {
+      "name": "GET  /resources/:resource/snaps/:createdAt",
+      "method": "GET",
+      "pattern": "/resources/:resource/snaps/:createdAt",
+      "url": "/resources/postgres-boris/snaps/2026-11-14T11:23:49Z",
+      "resource": "postgres-boris",
+      "mutating": false,
+      "requests": 5,
+      "statuses": {
+        "200": 5
+      },
+      "overlapped": 0,
+      "client_ms_avg": 35.503,
+      "client_ms_min": 35.202,
+      "client_ms_max": 35.745,
+      "server_ms_avg": 35.181089,
+      "server_ms_max": 35.394376,
+      "resp_bytes_avg": 139,
+      "ops_per_request": {
+        "op.dataset_open_recursive": 1,
+        "op.dataset_path": 99,
+        "op.dataset_snapshots": 36,
+        "op.get_user_property": 30,
+        "vol.dataset_handles": 34,
+        "vol.kernel_ioctls_est": 251,
+        "vol.property_table_loads": 34,
+        "vol.property_values": 3094
+      },
+      "libzfs_calls_per_request": 166
+    }
+  ],
+  "skipped": [
+    {
+      "name": "POST /resources/:resource/snaps",
+      "reason": "mutating, rerun with -mutating yes-create-and-destroy-clones"
+    },
+    {
+      "name": "POST /resources/:resource/snaps/:createdAt",
+      "reason": "mutating, rerun with -mutating yes-create-and-destroy-clones"
+    },
+    {
+      "name": "POST /resources/:resource/claim",
+      "reason": "mutating, rerun with -mutating yes-create-and-destroy-clones"
+    },
+    {
+      "name": "DEL  /resources/:resource/claims/:claimId",
+      "reason": "mutating, rerun with -mutating yes-create-and-destroy-clones"
+    },
+    {
+      "name": "DEL  /resources/:resource/clones/:time",
+      "reason": "mutating, rerun with -mutating yes-create-and-destroy-clones"
+    },
+    {
+      "name": "DEL  /resources/:resource/clones",
+      "reason": "mutating, rerun with -mutating yes-create-and-destroy-clones"
+    }
+  ]
+}

@@ -11,16 +11,9 @@ import (
 	"time"
 
 	zfs "github.com/kraudcloud/go-libzfs/v2"
-	"github.com/modfin/zdap"
-	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs/zfsstat"
 )
-
-// Dataset currently just wrap the dataset structure from go-libzfs, but will probably be extended in the future.
-type Dataset struct {
-	*zfs.Dataset
-}
 
 func NewZFS(pool string) *ZFS {
 	return &ZFS{
@@ -42,7 +35,25 @@ const PropPort = "zdap:port"
 const PropExpires = "zdap:expires_at"
 const PropHealthy = "zdap:healthy"
 
+// TimestampFormat is how zdap writes a time into a dataset name and into the
+// zdap:created_at, zdap:snapped_at and zdap:expires_at properties.
+//
+// The layout carries no zone, so a zdap timestamp is UTC by convention. Use
+// FormatTimestamp and ParseTimestamp rather than time.Format and time.Parse so
+// that the convention cannot drift: stamping local wall clock and reading it
+// back as UTC shifts the instant by the host's offset, which used to let a
+// claimed clone outlive its TTL by an hour on a host that was not on UTC.
 const TimestampFormat = "2006-01-02T15.04.05"
+
+// FormatTimestamp renders a time as a zdap timestamp, in UTC.
+func FormatTimestamp(t time.Time) string {
+	return t.UTC().Format(TimestampFormat)
+}
+
+// ParseTimestamp reads a zdap timestamp back as the instant it denotes.
+func ParseTimestamp(s string) (time.Time, error) {
+	return time.Parse(TimestampFormat, s)
+}
 
 var TimeReg = regexp.MustCompile("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}")
 
@@ -50,8 +61,11 @@ var cloneReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{
 var snapReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}@snap$")
 var baseReg = regexp.MustCompile("^zdap.*base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}$")
 
+// Pool returns the dataset path zdap keeps its datasets under.
+func (z *ZFS) Pool() string { return z.pool }
+
 func (z *ZFS) GetDatasetBaseNameAt(name string, at time.Time) string {
-	return fmt.Sprintf("zdap-%s-base-%s", name, at.Format(TimestampFormat))
+	return fmt.Sprintf("zdap-%s-base-%s", name, FormatTimestamp(at))
 }
 
 func (z *ZFS) NewDatasetBaseName(name string, t time.Time) string {
@@ -127,7 +141,7 @@ func (z *ZFS) CreateDataset(name string, resource string, creation time.Time, zf
 		return "", err
 	}
 	zfsstat.RecordWrite(zfsstat.OpSetUserProperty)
-	err = ds.SetUserProperty(PropCreated, creation.Format(TimestampFormat))
+	err = ds.SetUserProperty(PropCreated, FormatTimestamp(creation))
 	if err != nil {
 		return "", err
 	}
@@ -291,196 +305,6 @@ func (z *ZFS) DestroyAll() error {
 	return nil
 }
 
-func (z *ZFS) List(dss *Dataset) ([]string, error) {
-	var list []string
-	for _, ds := range dss.Children {
-		zfsstat.Inc(zfsstat.OpDatasetPath)
-		p, err := ds.Path()
-		if err != nil {
-			return nil, err
-		}
-		pre := fmt.Sprintf("%s/", z.pool)
-		if strings.HasPrefix(p, pre) {
-			list = append(list, strings.TrimPrefix(p, pre))
-		}
-		zfsstat.Inc(zfsstat.OpDatasetSnapshots)
-		snaps, err := ds.Snapshots()
-		if err != nil {
-			return nil, err
-		}
-		for _, snap := range snaps {
-			zfsstat.Inc(zfsstat.OpDatasetPath)
-			s, err := snap.Path()
-			if err != nil {
-				return nil, err
-			}
-			list = append(list, strings.TrimPrefix(s, pre))
-		}
-
-	}
-	return list, nil
-}
-
-func (z *ZFS) ListClones(dss *Dataset) ([]servermodel.ServerInternalClone, error) {
-
-	var clones []servermodel.ServerInternalClone
-
-	cc, err := z.listReg(dss, cloneReg)
-	if err != nil {
-		return nil, err
-	}
-
-	cds := map[string]*zfs.Dataset{}
-	for i, cd := range dss.Children {
-		zfsstat.Inc(zfsstat.OpDatasetPath)
-		p, err := cd.Path()
-		if err != nil {
-			continue
-		}
-		cds[p] = &dss.Children[i]
-	}
-
-	for _, c := range cc {
-		d, ok := cds[fmt.Sprintf("%s/%s", z.pool, c)]
-		if !ok {
-			return nil, fmt.Errorf("child %s/%s not found", z.pool, c)
-		}
-
-		zfsstat.Add(zfsstat.OpGetUserProperty, 8) // the 8 zdap:* properties read below
-
-		owner, err := d.GetUserProperty(PropOwner)
-		if err != nil {
-			return nil, err
-		}
-		created, err := d.GetUserProperty(PropCreated)
-		if err != nil {
-			return nil, err
-		}
-
-		resource, err := d.GetUserProperty(PropResource)
-		if err != nil {
-			return nil, err
-		}
-		snapped, err := d.GetUserProperty(PropSnappedAt)
-		if err != nil {
-			return nil, err
-		}
-		clonePooled, err := d.GetUserProperty(PropClonePooled)
-		if err != nil {
-			return nil, err
-		}
-		healthy, err := d.GetUserProperty(PropHealthy)
-		if err != nil {
-			return nil, err
-		}
-
-		// TODO for backwards compatibility, should be removed
-		port := 0
-		portString, err := d.GetUserProperty(PropPort)
-		if err == nil {
-			port, _ = strconv.Atoi(portString.Value)
-		}
-
-		expires, err := d.GetUserProperty(PropExpires)
-		if err != nil {
-			return nil, err
-		}
-
-		createdAt, _ := time.Parse(TimestampFormat, created.Value)
-		snappedAt, _ := time.Parse(TimestampFormat, snapped.Value)
-		expAt, err := time.Parse(TimestampFormat, expires.Value)
-		var expiresAt *time.Time
-		if err == nil {
-			expiresAt = &expAt
-		}
-
-		clones = append(clones, servermodel.ServerInternalClone{
-			PublicClone: zdap.PublicClone{
-				Name:        c,
-				Resource:    resource.Value,
-				Owner:       owner.Value,
-				CreatedAt:   createdAt,
-				SnappedAt:   snappedAt,
-				ClonePooled: clonePooled.Value == "true",
-				Healthy:     healthy.Value == "true",
-				ExpiresAt:   expiresAt,
-				Port:        port},
-			Dataset: d,
-		})
-	}
-
-	return clones, nil
-}
-func (z *ZFS) ListBases(dss *Dataset) ([]string, error) {
-	return z.listReg(dss, baseReg)
-}
-
-func (z *ZFS) ListSnaps(dss *Dataset) ([]servermodel.ServerInternalSnapshot, error) {
-
-	sn, err := z.listReg(dss, snapReg)
-	if err != nil {
-		return nil, err
-	}
-	var snaps []servermodel.ServerInternalSnapshot
-
-	cds := map[string]*zfs.Dataset{}
-	for _, cd := range dss.Children {
-		for i, ccd := range cd.Children {
-			if ccd.IsSnapshot() {
-				zfsstat.Inc(zfsstat.OpDatasetPath)
-				p, err := ccd.Path()
-				if err != nil {
-					continue
-				}
-				cds[p] = &cd.Children[i]
-			}
-		}
-	}
-	for _, s := range sn {
-		d, ok := cds[fmt.Sprintf("%s/%s", z.pool, s)]
-		if !ok {
-			return nil, fmt.Errorf("child %s/%s not found", z.pool, s)
-		}
-
-		zfsstat.Add(zfsstat.OpGetUserProperty, 2) // zdap:created_at and zdap:resource
-
-		created, err := d.GetUserProperty(PropCreated)
-		if err != nil {
-			return nil, err
-		}
-		createdAt, _ := time.Parse(TimestampFormat, created.Value)
-
-		resource, err := d.GetUserProperty(PropResource)
-		if err != nil {
-			return nil, err
-		}
-
-		snaps = append(snaps, servermodel.ServerInternalSnapshot{
-			PublicSnap: zdap.PublicSnap{
-				Name:      s,
-				Resource:  resource.Value,
-				CreatedAt: createdAt},
-		})
-	}
-
-	return snaps, nil
-}
-
-func (z *ZFS) listReg(dss *Dataset, reg *regexp.Regexp) ([]string, error) {
-	ll, err := z.List(dss)
-	if err != nil {
-		return nil, err
-	}
-	var list []string
-
-	for _, item := range ll {
-		if reg.MatchString(item) {
-			list = append(list, item)
-		}
-	}
-	return list, nil
-}
-
 func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error {
 	z.writeLock()
 	defer z.writeUnlock()
@@ -498,7 +322,7 @@ func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error
 		return err
 	}
 	zfsstat.RecordWrite(zfsstat.OpSetUserProperty)
-	err = ds.SetUserProperty(PropCreated, created.Format(TimestampFormat))
+	err = ds.SetUserProperty(PropCreated, FormatTimestamp(created))
 	if err != nil {
 		return err
 	}
@@ -528,7 +352,7 @@ func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool, z
 		return "", "", errors.New("could not find snapshot to clone")
 	}
 
-	created := time.Now().Format(TimestampFormat)
+	created := FormatTimestamp(time.Now())
 
 	cloneName := fmt.Sprintf("%s-clone-%s.%s", dsName, created, utils.RandStringRunes(3))
 
@@ -628,26 +452,25 @@ func (z *ZFS) SetDatasetProperties(dataset zfs.Dataset, props map[string]string,
 	return errors.Join(errs...)
 }
 
-func (z *ZFS) SetUserProperty(dataset zfs.Dataset, prop string, value string) error {
+// SetUserProperty sets a zdap:* property on one dataset, named relative to the
+// pool.
+//
+// It takes a name rather than an open dataset so that callers do not have to
+// hold a handle from a recursive open just to write one property. Opening the
+// single dataset costs 8 ioctls, against 229 for opening the pool.
+func (z *ZFS) SetUserProperty(name string, prop string, value string) error {
 	z.writeLock()
 	defer z.writeUnlock()
 
-	zfsstat.RecordWrite(zfsstat.OpSetUserProperty)
-	return dataset.SetUserProperty(prop, value)
-}
-
-func (z *ZFS) Open() (*Dataset, error) {
-	z.readLock()
-	defer z.readUnlock()
-	dss, err := zfs.DatasetOpen(z.pool)
+	ds, err := zfs.DatasetOpenSingle(fmt.Sprintf("%s/%s", z.pool, name))
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("could not open dataset %s: %w", name, err)
 	}
-	// DatasetOpen walks the whole pool: every filesystem and every snapshot
-	// below z.pool gets a handle with its full property table loaded, whether
-	// or not the caller needs it. Count what it materialised.
-	zfsstat.RecordRecursiveOpen(countHandles(&dss))
-	return &Dataset{Dataset: &dss}, nil
+	zfsstat.RecordSingleOpen()
+	defer ds.Close()
+
+	zfsstat.RecordWrite(zfsstat.OpSetUserProperty)
+	return ds.SetUserProperty(prop, value)
 }
 
 // countHandles returns the number of dataset handles in an opened tree. The

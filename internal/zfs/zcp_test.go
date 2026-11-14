@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -46,12 +45,12 @@ func TestListNamesStripsThePoolPrefix(t *testing.T) {
 	}}`, "", nil)
 
 	z := NewZFS("zdap/1/databases")
-	names, err := z.ListNames(context.Background())
+	lst, err := z.Load(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	sort.Strings(names)
+	names := lst.Names()
 	want := []string{
 		"zdap-postgres-boris-base-2026-11-14T11.23.49",
 		"zdap-postgres-boris-base-2026-11-14T11.23.49@snap",
@@ -95,7 +94,7 @@ func TestListNamesRemovesTheProgramFile(t *testing.T) {
 	}
 	t.Cleanup(func() { execZfs = prev })
 
-	if _, err := NewZFS("zdap/1/databases").ListNames(context.Background()); err != nil {
+	if _, err := NewZFS("zdap/1/databases").Load(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(programFile); !os.IsNotExist(err) {
@@ -106,7 +105,7 @@ func TestListNamesRemovesTheProgramFile(t *testing.T) {
 func TestChannelProgramReportsProgramErrors(t *testing.T) {
 	stubZfs(t, `{"error": "dataset does not exist"}`, "", errors.New("exit status 1"))
 
-	_, err := NewZFS("zdap/1/databases").ListNames(context.Background())
+	_, err := NewZFS("zdap/1/databases").Load(context.Background())
 	if err == nil {
 		t.Fatal("want an error")
 	}
@@ -120,7 +119,7 @@ func TestChannelProgramReportsPlainTextFailures(t *testing.T) {
 	// stderr. This is the failure a developer is most likely to hit.
 	stubZfs(t, "", "Channel program execution failed:\nPermission denied. Channel programs must be run as root.\n", errors.New("exit status 1"))
 
-	_, err := NewZFS("zdap/1/databases").ListNames(context.Background())
+	_, err := NewZFS("zdap/1/databases").Load(context.Background())
 	if err == nil {
 		t.Fatal("want an error")
 	}
@@ -135,7 +134,7 @@ func TestChannelProgramReportsPlainTextFailures(t *testing.T) {
 func TestChannelProgramReportsUndecodableOutput(t *testing.T) {
 	stubZfs(t, "not json at all", "", nil)
 
-	_, err := NewZFS("zdap/1/databases").ListNames(context.Background())
+	_, err := NewZFS("zdap/1/databases").Load(context.Background())
 	if err == nil {
 		t.Fatal("want an error")
 	}

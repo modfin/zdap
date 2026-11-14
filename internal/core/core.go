@@ -224,11 +224,8 @@ func (c *Core) GetCloneContainers(cloneName string) ([]container.Summary, error)
 
 }
 
-func (c *Core) GetResourceClones(dss *zfs.Dataset, resourceName string) (map[time.Time][]servermodel.ServerInternalClone, error) {
-	clones, err := c.z.ListClones(dss)
-	if err != nil {
-		return nil, err
-	}
+func (c *Core) GetResourceClones(lst *zfs.Listing, resourceName string) (map[time.Time][]servermodel.ServerInternalClone, error) {
+	clones := lst.Clones()
 	var rclone = map[time.Time][]servermodel.ServerInternalClone{}
 	for _, clone := range clones {
 		clone.Server = c.networkAddress
@@ -240,7 +237,7 @@ func (c *Core) GetResourceClones(dss *zfs.Dataset, resourceName string) (map[tim
 		if len(timeStrings) != 2 {
 			return nil, fmt.Errorf("clone name did not have 2 dates, %#v", clone)
 		}
-		snaped, err := time.Parse(zfs.TimestampFormat, timeStrings[0])
+		snaped, err := zfs.ParseTimestamp(timeStrings[0])
 		if err != nil {
 			return nil, err
 		}
@@ -251,11 +248,8 @@ func (c *Core) GetResourceClones(dss *zfs.Dataset, resourceName string) (map[tim
 	return rclone, nil
 }
 
-func (c *Core) GetResourceSnaps(dss *zfs.Dataset, resourceName string) ([]servermodel.ServerInternalSnapshot, error) {
-	snaps, err := c.z.ListSnaps(dss)
-	if err != nil {
-		return nil, err
-	}
+func (c *Core) GetResourceSnaps(lst *zfs.Listing, resourceName string) ([]servermodel.ServerInternalSnapshot, error) {
+	snaps := lst.Snaps()
 	snapReg, err := regexp.Compile(fmt.Sprintf("^zdap-%s-base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}@snap$", resourceName))
 	if err != nil {
 		return nil, err
@@ -279,21 +273,17 @@ func (c *Core) getResource(resourceName string) *internal.Resource {
 	return nil
 }
 
-func (c *Core) CreateBaseAndSnap(resourceName string, useExistingBase bool) error {
+func (c *Core) CreateBaseAndSnap(ctx context.Context, resourceName string, useExistingBase bool) error {
 	r := c.getResource(resourceName)
 	if r == nil {
 		return fmt.Errorf("could not find resource %s", resourceName)
 	}
 	if useExistingBase {
-		dss, err := c.z.Open()
+		lst, err := c.z.Load(ctx)
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
-		bs, err := c.z.ListBases(dss)
-		if err != nil {
-			return err
-		}
+		bs := lst.Bases()
 		resourceRx, err := regexp.Compile("^zdap-" + resourceName + "-base.*")
 		if err != nil {
 			return err
@@ -306,7 +296,7 @@ func (c *Core) CreateBaseAndSnap(resourceName string, useExistingBase bool) erro
 		}
 		latestBase := slicez.Reverse(slicez.Sort(resourceBases))[0]
 		t := time.Now()
-		fmt.Printf("snapping %s at %s\n", latestBase, t.Format(zfs.TimestampFormat))
+		fmt.Printf("snapping %s at %s\n", latestBase, zfs.FormatTimestamp(t))
 		return c.z.SnapDataset(latestBase, r.Name, t)
 	}
 	return bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z, func() {
@@ -317,15 +307,15 @@ func (c *Core) CreateBaseAndSnap(resourceName string, useExistingBase bool) erro
 	})
 }
 
-func (c *Core) CloneResource(dss *zfs.Dataset, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
-	return c.CloneResourceHandlePooling(dss, owner, resourceName, at, false)
+func (c *Core) CloneResource(lst *zfs.Listing, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
+	return c.CloneResourceHandlePooling(lst, owner, resourceName, at, false)
 }
 
-func (c *Core) CloneResourcePooled(dss *zfs.Dataset, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
-	return c.CloneResourceHandlePooling(dss, owner, resourceName, at, true)
+func (c *Core) CloneResourcePooled(lst *zfs.Listing, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
+	return c.CloneResourceHandlePooling(lst, owner, resourceName, at, true)
 }
 
-func (c *Core) CloneResourceHandlePooling(dss *zfs.Dataset, owner string, resourceName string, at time.Time, pooled bool) (*zdap.PublicClone, error) {
+func (c *Core) CloneResourceHandlePooling(lst *zfs.Listing, owner string, resourceName string, at time.Time, pooled bool) (*zdap.PublicClone, error) {
 
 	r := c.getResource(resourceName)
 	if r == nil {
@@ -340,14 +330,11 @@ func (c *Core) CloneResourceHandlePooling(dss *zfs.Dataset, owner string, resour
 		ApiPort:        c.apiPort,
 	}
 
-	return cc.CloneResourceHandlePooling(dss, owner, resourceName, at, pooled)
+	return cc.CloneResourceHandlePooling(lst, owner, resourceName, at, pooled)
 }
 
-func (c *Core) DestroyClone(dss *zfs.Dataset, cloneName string) error {
-	clones, err := c.z.ListClones(dss)
-	if err != nil {
-		return err
-	}
+func (c *Core) DestroyClone(lst *zfs.Listing, cloneName string) error {
+	clones := lst.Clones()
 	var contain bool
 	for _, c := range clones {
 		if c.Name == cloneName {
@@ -371,18 +358,12 @@ func (c *Core) DestroyClone(dss *zfs.Dataset, cloneName string) error {
 func (c *Core) ServerStatus(ctx context.Context) (zdap.ServerStatus, error) {
 	var s zdap.ServerStatus
 
-	names, err := c.z.ListNames(ctx)
+	lst, err := c.z.Load(ctx)
 	if err != nil {
 		return s, fmt.Errorf("could not list datasets, %w", err)
 	}
-	for _, name := range names {
-		switch {
-		case zfs.IsCloneName(name):
-			s.Clones++
-		case zfs.IsSnapName(name):
-			s.Snaps++
-		}
-	}
+	s.Clones = len(lst.Clones())
+	s.Snaps = len(lst.Snaps())
 
 	space, err := c.z.Space(ctx)
 	if err != nil {

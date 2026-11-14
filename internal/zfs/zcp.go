@@ -25,14 +25,16 @@ import (
 
 const (
 	// zcpInstructionLimit caps how much work a program may do. The ZFS default
-	// is 10 million and the maximum is 100 million. Listing is a handful of
-	// instructions per dataset, so this leaves room for a pool with tens of
-	// thousands of clones.
-	zcpInstructionLimit = 10 * 1000 * 1000
-	// zcpMemoryLimit caps the memory a program may allocate. The ZFS default
-	// is 10 MiB and the maximum is 100 MiB. The result set is the bulk of it:
-	// roughly one short string per dataset.
-	zcpMemoryLimit = 10 * 1024 * 1024
+	// is 10 million and the maximum is 100 million. Listing costs a handful of
+	// instructions per dataset plus a few per property, so this leaves room for
+	// a pool with hundreds of thousands of datasets.
+	zcpInstructionLimit = 50 * 1000 * 1000
+	// zcpMemoryLimit caps the memory a program may allocate. The ZFS default is
+	// 10 MiB and the maximum is 100 MiB. The result set is the bulk of it, and
+	// it grows with the number of clones, each carrying eight zdap:* values, so
+	// this is set well above the default. A program that exceeds the limit
+	// fails outright rather than returning partial results.
+	zcpMemoryLimit = 64 * 1024 * 1024
 )
 
 //go:embed listDatasets.lua
@@ -41,6 +43,9 @@ var zcpListDatasets string
 // zcpDataset is one entry of a listing program's result.
 type zcpDataset struct {
 	Name string `json:"name"`
+	// Props holds the dataset's zdap:* user properties. A dataset that carries
+	// none of them has an empty map, not an error.
+	Props map[string]string `json:"props"`
 }
 
 // execZfs runs the zfs command and returns its stdout and stderr. It is a
@@ -136,26 +141,6 @@ func zcpMessage(preferred, fallback []byte) string {
 		return "no output"
 	}
 	return msg
-}
-
-// ListNames returns the names of every dataset and snapshot zdap keeps under
-// the pool dataset, relative to it, in the same form as List. It replaces a
-// recursive open of the pool with a single channel program.
-func (z *ZFS) ListNames(ctx context.Context) ([]string, error) {
-	var datasets map[string]zcpDataset
-	err := channelProgram(ctx, poolName(z.pool), zcpListDatasets, []string{z.pool}, &datasets)
-	if err != nil {
-		return nil, err
-	}
-
-	prefix := z.pool + "/"
-	list := make([]string, 0, len(datasets))
-	for path := range datasets {
-		if name, ok := strings.CutPrefix(path, prefix); ok {
-			list = append(list, name)
-		}
-	}
-	return list, nil
 }
 
 // IsCloneName reports whether a pool-relative dataset name is a zdap clone.

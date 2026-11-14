@@ -100,7 +100,7 @@ func main() {
 								return errors.New("resources to create snaps from must be provided")
 							}
 							for _, resource := range c.Args().Slice() {
-								err := app.CreateBaseAndSnap(resource, c.Bool("use-existing"))
+								err := app.CreateBaseAndSnap(c.Context, resource, c.Bool("use-existing"))
 								if err != nil {
 									return err
 								}
@@ -134,14 +134,13 @@ func main() {
 
 							resource := c.Args().First()
 
-							dss, err := z.Open()
+							lst, err := z.Load(c.Context)
 							if err != nil {
 								return err
 							}
-							defer dss.Close()
 
 							if from == nil {
-								snaps, err := app.GetResourceSnaps(dss, resource)
+								snaps, err := app.GetResourceSnaps(lst, resource)
 								if err != nil {
 									return err
 								}
@@ -154,7 +153,7 @@ func main() {
 								from = &snaps[0].CreatedAt
 							}
 
-							clone, err := app.CloneResource(dss, c.String("owner"), resource, *from)
+							clone, err := app.CloneResource(lst, c.String("owner"), resource, *from)
 							if err != nil {
 								return err
 							}
@@ -184,13 +183,12 @@ func main() {
 						Action: func(c *cli.Context) error {
 
 							printSnap := func(resource string) error {
-								dss, err := z.Open()
+								lst, err := z.Load(c.Context)
 								if err != nil {
 									return err
 								}
-								defer dss.Close()
 
-								snaps, err := app.GetResourceSnaps(dss, resource)
+								snaps, err := app.GetResourceSnaps(lst, resource)
 								if err != nil {
 									return err
 								}
@@ -234,13 +232,12 @@ func main() {
 						Action: func(c *cli.Context) error {
 
 							printClone := func(resource string) error {
-								dss, err := z.Open()
+								lst, err := z.Load(c.Context)
 								if err != nil {
 									return err
 								}
-								defer dss.Close()
 
-								times, err := app.GetResourceClones(dss, resource)
+								times, err := app.GetResourceClones(lst, resource)
 								if err != nil {
 									return err
 								}
@@ -310,19 +307,19 @@ func main() {
 					{
 						Name:  "clones",
 						Usage: "destroys all clones along with any associated docker images",
-						Action: func(context *cli.Context) error {
-							return destroyClones(docker, z)
+						Action: func(c *cli.Context) error {
+							return destroyClones(c.Context, docker, z)
 						},
 					},
 					{
 						Name:  "clone",
 						Usage: "destroys a clone specific clone along with any associated docker images",
-						Action: func(context *cli.Context) error {
-							clone := context.Args().First()
+						Action: func(c *cli.Context) error {
+							clone := c.Args().First()
 							if !strings.Contains(clone, "-clone-") {
 								return errors.New("'destroy clone <name>' must contain a valid name")
 							}
-							return destroyClone(clone, docker, z)
+							return destroyClone(c.Context, clone, docker, z)
 						},
 					},
 				},
@@ -394,19 +391,15 @@ func destroyAll(docker *client.Client, z *zfs.ZFS) error {
 	return z.DestroyAll()
 }
 
-func destroyClones(docker *client.Client, z *zfs.ZFS) error {
+func destroyClones(ctx context.Context, docker *client.Client, z *zfs.ZFS) error {
 	fmt.Println("Destroying Containers")
 
-	dss, err := z.Open()
+	lst, err := z.Load(ctx)
 	if err != nil {
 		return err
 	}
-	defer dss.Close()
 
-	clones, err := z.ListClones(dss)
-	if err != nil {
-		return err
-	}
+	clones := lst.Clones()
 	isClone := map[string]bool{}
 	for _, c := range clones {
 		isClone[c.Name] = true
@@ -441,19 +434,15 @@ func destroyClones(docker *client.Client, z *zfs.ZFS) error {
 	return nil
 }
 
-func destroyClone(clone string, docker *client.Client, z *zfs.ZFS) error {
+func destroyClone(ctx context.Context, clone string, docker *client.Client, z *zfs.ZFS) error {
 	fmt.Println("Destroying Containers")
 
-	dss, err := z.Open()
+	lst, err := z.Load(ctx)
 	if err != nil {
 		return err
 	}
-	defer dss.Close()
 
-	clones, err := z.ListClones(dss)
-	if err != nil {
-		return err
-	}
+	clones := lst.Clones()
 	isClone := map[string]bool{}
 	for _, c := range clones {
 		isClone[c.Name] = true
@@ -490,38 +479,53 @@ func destroyClone(clone string, docker *client.Client, z *zfs.ZFS) error {
 //	sudo env ZPOOL=zdap/1/databases CONFIG_DIR=/zdap/1/config go run ./cmd/zdapd check-zfs
 func checkZFS(ctx context.Context, z *zfs.ZFS) error {
 	fmt.Println("== channel program: list datasets ==")
-	names, err := z.ListNames(ctx)
+	lst, err := z.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("channel program failed: %w", err)
 	}
 
-	var bases, snaps, clones, other []string
-	for _, name := range names {
+	var bases, other []string
+	for _, name := range lst.Names() {
 		switch {
-		case zfs.IsCloneName(name):
-			clones = append(clones, name)
-		case zfs.IsSnapName(name):
-			snaps = append(snaps, name)
+		case zfs.IsCloneName(name), zfs.IsSnapName(name):
+			continue // listed with their parsed properties below
 		case zfs.IsBaseName(name):
 			bases = append(bases, name)
 		default:
 			other = append(other, name)
 		}
 	}
-	for _, group := range []struct {
-		label string
-		names []string
-	}{
-		{"bases", bases},
-		{"snapshots", snaps},
-		{"clones", clones},
-		{"unrecognised", other},
-	} {
-		sort.Strings(group.names)
-		fmt.Printf(" %s: %d\n", group.label, len(group.names))
-		for _, n := range group.names {
-			fmt.Println("   -", n)
+
+	snaps := lst.Snaps()
+	clones := lst.Clones()
+	fmt.Printf(" %d bases, %d snapshots, %d clones, %d unrecognised\n\n",
+		len(bases), len(snaps), len(clones), len(other))
+
+	for _, name := range bases {
+		fmt.Println(" base    ", name)
+	}
+	// The properties are the part worth looking at: they come back from
+	// zfs.list.user_properties in the channel program, and a dataset that does
+	// not carry one is not an error. A snapshot with an empty resource or a
+	// zero created_at means the program or the parsing is wrong.
+	for _, s := range snaps {
+		fmt.Printf(" snapshot %s resource=%q created=%s\n",
+			s.Name, s.Resource, fmtTime(s.CreatedAt))
+	}
+	now := time.Now()
+	for _, c := range clones {
+		// Whether the clone pool considers it expired, which is the one place
+		// a zdap timestamp is compared against wall clock time.
+		expiry := fmtTimePtr(c.ExpiresAt)
+		if c.ExpiresAt != nil && c.ExpiresAt.Before(now) {
+			expiry += " (EXPIRED, due for pruning)"
 		}
+		fmt.Printf(" clone    %s resource=%q owner=%q created=%s snapped=%s pooled=%t healthy=%t port=%d expires=%s\n",
+			c.Name, c.Resource, c.Owner, fmtTime(c.CreatedAt), fmtTime(c.SnappedAt),
+			c.ClonePooled, c.Healthy, c.Port, expiry)
+	}
+	for _, name := range other {
+		fmt.Println(" ?       ", name)
 	}
 
 	fmt.Println()
@@ -536,6 +540,21 @@ func checkZFS(ctx context.Context, z *zfs.ZFS) error {
 	}
 
 	fmt.Println()
-	fmt.Println("both paths work, GET /status needs nothing else from ZFS")
+	fmt.Println("both paths work; check the resource and created values above against")
+	fmt.Println("zfs get -r all " + z.Pool() + " before trusting them")
 	return nil
+}
+
+func fmtTime(t time.Time) string {
+	if t.IsZero() {
+		return "unset"
+	}
+	return zfs.FormatTimestamp(t)
+}
+
+func fmtTimePtr(t *time.Time) string {
+	if t == nil {
+		return "none"
+	}
+	return fmtTime(*t)
 }

@@ -47,13 +47,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.GET("/resources", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		res, err := getResources(dss, c.Get("owner").(string), app)
+		res, err := getResources(lst, c.Get("owner").(string), app)
 		if err != nil {
 			return err
 		}
@@ -61,13 +60,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.GET("/resources/:resource", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		res, err := getResource(dss, c.Get("owner").(string), c.Param("resource"), app)
+		res, err := getResource(lst, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -75,13 +73,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.GET("/resources/:resource/clones", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
+		snaps, err := getSnaps(lst, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -96,19 +93,18 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.DELETE("/resources/:resource/clones", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
+		snaps, err := getSnaps(lst, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
 		for _, snap := range snaps {
 			for _, clone := range snap.Clones {
-				err = app.DestroyClone(dss, clone.Name)
+				err = app.DestroyClone(lst, clone.Name)
 				if err != nil {
 					return err
 				}
@@ -118,13 +114,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.DELETE("/resources/:resource/clones/:time", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
+		snaps, err := getSnaps(lst, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -136,7 +131,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		for _, snap := range snaps {
 			for _, clone := range snap.Clones {
 				if clone.CreatedAt.Equal(at) {
-					err = app.DestroyClone(dss, clone.Name)
+					err = app.DestroyClone(lst, clone.Name)
 					if err != nil {
 						return err
 					}
@@ -148,13 +143,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.GET("/resources/:resource/snaps", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		res, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
+		res, err := getSnaps(lst, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -164,13 +158,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	e.POST("/resources/:resource/snaps", func(c *echo.Context) error {
 		resource := c.Param("resource")
 
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		snaps, err := getSnaps(dss, c.Get("owner").(string), resource, app)
+		snaps, err := getSnaps(lst, c.Get("owner").(string), resource, app)
 		if err != nil {
 			return err
 		}
@@ -180,7 +173,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 				max = s.CreatedAt
 			}
 		}
-		clone, err := app.CloneResource(dss, c.Get("owner").(string), resource, max)
+		clone, err := app.CloneResource(lst, c.Get("owner").(string), resource, max)
 		if err != nil {
 			return err
 		}
@@ -194,13 +187,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 			return err
 		}
 
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		clone, err := app.CloneResource(dss, c.Get("owner").(string), resource, at)
+		clone, err := app.CloneResource(lst, c.Get("owner").(string), resource, at)
 		if err != nil {
 			return err
 		}
@@ -213,13 +205,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 			return err
 		}
 
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		res, err := getSnap(dss, c.Get("owner").(string), at, c.Param("resource"), app)
+		res, err := getSnap(lst, c.Get("owner").(string), at, c.Param("resource"), app)
 		if err != nil {
 			return err
 		}

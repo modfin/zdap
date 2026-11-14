@@ -1,6 +1,7 @@
 package zfs_test
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"testing"
@@ -9,22 +10,18 @@ import (
 	"github.com/modfin/zdap/internal/zfs/zfsstat"
 )
 
-// These benchmarks measure the ZFS layer directly, without the daemon, so that
-// a channel program implementation of a listing can be compared against the
-// current one in isolation:
+// These benchmarks measure the ZFS layer directly, without the daemon:
 //
-//	ZDAP_BENCH_ZPOOL=zdap/1/databases go test ./internal/zfs/ -run '^$' -bench . -benchtime 10x
+//	sudo env ZDAP_BENCH_ZPOOL=zdap/1/databases go test ./internal/zfs/ -run '^$' -bench . -benchtime 10x
 //
-// Besides ns/op they report the ZFS work per operation, which is the number
-// that has to come down:
+// sudo is needed because Load runs a zfs channel program, and channel programs
+// are root only. Besides ns/op they report the ZFS work per operation:
 //
-//	handles/op   dataset handles materialised, each with its full property table
-//	propvals/op  native property values read out of libzfs
-//	libzfs/op    libzfs entry point calls
+//	handles/op   dataset handles materialised through libzfs, which should now
+//	             be zero on the read path
+//	propvals/op  native property values read out of libzfs, likewise
+//	libzfs/op    libzfs entry point calls, including channel program runs
 //	ioctls/op    estimated /dev/zfs ioctls
-//
-// They need read access to a real pool, so they skip unless ZDAP_BENCH_ZPOOL
-// names one. Nothing here writes to ZFS.
 
 func benchPool(b *testing.B) *zfs.ZFS {
 	b.Helper()
@@ -33,12 +30,19 @@ func benchPool(b *testing.B) *zfs.ZFS {
 		b.Skip("set ZDAP_BENCH_ZPOOL to a zdap pool, e.g. zdap/1/databases, to run this benchmark")
 	}
 	z := zfs.NewZFS(pool)
-	dss, err := z.Open()
-	if err != nil {
-		b.Skipf("cannot open pool %s: %v", pool, err)
+	if _, err := z.Load(context.Background()); err != nil {
+		b.Skipf("cannot list pool %s: %v", pool, err)
 	}
-	dss.Close()
 	return z
+}
+
+func benchListing(b *testing.B) *zfs.Listing {
+	b.Helper()
+	lst, err := benchPool(b).Load(context.Background())
+	if err != nil {
+		b.Fatal(err)
+	}
+	return lst
 }
 
 // reportZFSWork turns the counter delta over the whole benchmark into
@@ -53,38 +57,15 @@ func reportZFSWork(b *testing.B, before zfsstat.Stats) {
 	b.ReportMetric(float64(d[zfsstat.VolKernelIoctls])/n, "ioctls/op")
 }
 
-// BenchmarkOpen measures the recursive open of the pool on its own. Every REST
-// endpoint starts with one of these.
-func BenchmarkOpen(b *testing.B) {
+// BenchmarkLoad measures fetching the whole listing. Every read endpoint does
+// exactly one of these, where it used to do a recursive open of the pool.
+func BenchmarkLoad(b *testing.B) {
 	z := benchPool(b)
 
 	before := zfsstat.Snapshot()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		dss, err := z.Open()
-		if err != nil {
-			b.Fatal(err)
-		}
-		dss.Close()
-	}
-	b.StopTimer()
-	reportZFSWork(b, before)
-}
-
-// BenchmarkListSnaps measures listing snapshots off an already open pool, the
-// way the handlers do it.
-func BenchmarkListSnaps(b *testing.B) {
-	z := benchPool(b)
-	dss, err := z.Open()
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer dss.Close()
-
-	before := zfsstat.Snapshot()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := z.ListSnaps(dss); err != nil {
+		if _, err := z.Load(context.Background()); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -92,51 +73,37 @@ func BenchmarkListSnaps(b *testing.B) {
 	reportZFSWork(b, before)
 }
 
-// BenchmarkListClones measures listing clones off an already open pool.
-func BenchmarkListClones(b *testing.B) {
-	z := benchPool(b)
-	dss, err := z.Open()
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer dss.Close()
+// BenchmarkSnaps measures picking the snapshots out of a loaded listing.
+func BenchmarkSnaps(b *testing.B) {
+	lst := benchListing(b)
 
 	before := zfsstat.Snapshot()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := z.ListClones(dss); err != nil {
-			b.Fatal(err)
-		}
+		_ = lst.Snaps()
 	}
 	b.StopTimer()
 	reportZFSWork(b, before)
 }
 
-// BenchmarkListBases measures listing base datasets off an already open pool.
-func BenchmarkListBases(b *testing.B) {
-	z := benchPool(b)
-	dss, err := z.Open()
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer dss.Close()
+// BenchmarkClones measures picking the clones out of a loaded listing,
+// including parsing their zdap:* properties.
+func BenchmarkClones(b *testing.B) {
+	lst := benchListing(b)
 
 	before := zfsstat.Snapshot()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := z.ListBases(dss); err != nil {
-			b.Fatal(err)
-		}
+		_ = lst.Clones()
 	}
 	b.StopTimer()
 	reportZFSWork(b, before)
 }
 
-// BenchmarkOpenAndListAll is the shape of GET /resources: open the pool once,
-// then list snapshots and clones once per configured resource. It is the
-// clearest view of the repeated full walks the current code does, and the one
-// a channel program implementation should flatten.
-func BenchmarkOpenAndListAll(b *testing.B) {
+// BenchmarkLoadAndListAll is the shape of GET /resources: load the listing
+// once, then pick out snapshots and clones once per configured resource. It is
+// the comparison against the old recursive open plus a walk per resource.
+func BenchmarkLoadAndListAll(b *testing.B) {
 	z := benchPool(b)
 
 	resources := 15 // roughly what a zdap host carries
@@ -150,19 +117,14 @@ func BenchmarkOpenAndListAll(b *testing.B) {
 	before := zfsstat.Snapshot()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		dss, err := z.Open()
+		lst, err := z.Load(context.Background())
 		if err != nil {
 			b.Fatal(err)
 		}
 		for r := 0; r < resources; r++ {
-			if _, err := z.ListSnaps(dss); err != nil {
-				b.Fatal(err)
-			}
-			if _, err := z.ListClones(dss); err != nil {
-				b.Fatal(err)
-			}
+			_ = lst.Snaps()
+			_ = lst.Clones()
 		}
-		dss.Close()
 	}
 	b.StopTimer()
 	reportZFSWork(b, before)
