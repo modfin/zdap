@@ -74,12 +74,7 @@ func main() {
 				Name:  "check-zfs",
 				Usage: "checks the zfs channel program and zpool paths that replace go-libzfs, and prints what they return",
 				Action: func(c *cli.Context) error {
-					// Exit non-zero on failure, so the check can be scripted.
-					// zdapd's other commands only print their errors.
-					if err := checkZFS(c.Context, z); err != nil {
-						return cli.Exit(fmt.Sprintf("[Error] %v", err), 1)
-					}
-					return nil
+					return checkZFS(c.Context, z)
 				},
 			},
 			{
@@ -330,7 +325,13 @@ func main() {
 	err = cliapp.Run(os.Args)
 
 	if err != nil {
-		fmt.Printf("[Error] %v\n", err)
+		// Report on stderr and exit non-zero. zdapd's commands are driven by
+		// cron and by scripts, and until this exited 1 they had no way to tell
+		// a failed base creation from a successful one: the error was printed
+		// and the process still reported success. This is what the zdap client
+		// already does.
+		fmt.Fprintf(os.Stderr, "[Error] %v\n", err)
+		os.Exit(1)
 	}
 }
 
