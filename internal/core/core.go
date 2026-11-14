@@ -362,33 +362,37 @@ func (c *Core) DestroyClone(dss *zfs.Dataset, cloneName string) error {
 	return bases.DestroyClone(cloneName, c.docker, c.z)
 }
 
-func (c *Core) ServerStatus(dss *zfs.Dataset) (zdap.ServerStatus, error) {
+// ServerStatus reports what the host has and how loaded it is.
+//
+// It needs counts and capacity, not dataset contents, so it does not open the
+// pool: one channel program lists the dataset names and one zpool call gives
+// the capacity. That is two kernel calls instead of a recursive open of every
+// dataset and snapshot.
+func (c *Core) ServerStatus(ctx context.Context) (zdap.ServerStatus, error) {
 	var s zdap.ServerStatus
 
-	clones, err := c.z.ListClones(dss)
+	names, err := c.z.ListNames(ctx)
 	if err != nil {
-		return s, fmt.Errorf("could not list clones, %w", err)
+		return s, fmt.Errorf("could not list datasets, %w", err)
 	}
-	snaps, err := c.z.ListSnaps(dss)
-	if err != nil {
-		return s, fmt.Errorf("could not list snaps, %w", err)
+	for _, name := range names {
+		switch {
+		case zfs.IsCloneName(name):
+			s.Clones++
+		case zfs.IsSnapName(name):
+			s.Snaps++
+		}
 	}
 
-	s.Clones = len(clones)
-	s.Snaps = len(snaps)
+	space, err := c.z.Space(ctx)
+	if err != nil {
+		return s, fmt.Errorf("could not get pool space, %w", err)
+	}
+
 	s.Address = c.networkAddress
-	s.UsedDisk, err = c.z.UsedSpace(dss)
-	if err != nil {
-		return s, fmt.Errorf("could not get UsedSpace, %w", err)
-	}
-	s.FreeDisk, err = c.z.FreeSpace(dss)
-	if err != nil {
-		return s, fmt.Errorf("could not get FreeSpace, %w", err)
-	}
-	s.TotalDisk, err = c.z.TotalSpace(dss)
-	if err != nil {
-		return s, fmt.Errorf("could not get TotalSpace, %w", err)
-	}
+	s.UsedDisk = space.Used
+	s.FreeDisk = space.Free
+	s.TotalDisk = space.Total
 
 	mem, err := cmem.VirtualMemory()
 	if err != nil {

@@ -22,6 +22,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 
 	e.Use(middleware.RequestLogger())
 	e.Use(middleware.RemoveTrailingSlash())
+	e.Use(zfsStatsMiddleware)
 
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -35,14 +36,10 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		}
 	})
 
+	// /status reports counts and capacity, which the ZFS layer answers without
+	// opening the pool, so this handler does not take a dataset.
 	e.GET("/status", func(c *echo.Context) error {
-		dss, err := z.Open()
-		if err != nil {
-			return fmt.Errorf("could not open dataset, %w", err)
-		}
-		defer dss.Close()
-
-		res, err := getStatus(dss, app)
+		res, err := getStatus(c.Request().Context(), app)
 		if err != nil {
 			return fmt.Errorf("could not retrieve status, %w", err)
 		}
@@ -254,6 +251,8 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 
 		return app.ExpirePooledClone(resource, claimId)
 	})
+
+	registerZFSOpsRoutes(e)
 
 	fmt.Println("== Loaded Resources ==")
 	for _, r := range app.GetResourcesNames() {

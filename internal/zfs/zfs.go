@@ -14,6 +14,7 @@ import (
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal/servermodel"
 	"github.com/modfin/zdap/internal/utils"
+	"github.com/modfin/zdap/internal/zfs/zfsstat"
 )
 
 // Dataset currently just wrap the dataset structure from go-libzfs, but will probably be extended in the future.
@@ -113,25 +114,30 @@ func (z *ZFS) CreateDataset(name string, resource string, creation time.Time, zf
 	z.writeLock()
 	defer z.writeUnlock()
 
+	zfsstat.RecordWrite(zfsstat.OpDatasetCreate)
 	ds, err := zfs.DatasetCreate(fmt.Sprintf("%s/%s", z.pool, name), zfs.DatasetTypeFilesystem, zfsPropMap(zfsProps))
 	if err != nil {
 		return "", err
 	}
 	defer ds.Close()
 
+	zfsstat.RecordWrite(zfsstat.OpSetUserProperty)
 	err = ds.SetUserProperty(PropResource, resource)
 	if err != nil {
 		return "", err
 	}
+	zfsstat.RecordWrite(zfsstat.OpSetUserProperty)
 	err = ds.SetUserProperty(PropCreated, creation.Format(TimestampFormat))
 	if err != nil {
 		return "", err
 	}
 
+	zfsstat.RecordWrite(zfsstat.OpMount)
 	err = ds.Mount("", 0)
 	if err != nil {
 		return "", err
 	}
+	zfsstat.Inc(zfsstat.OpIsMounted)
 	mounted, path := ds.IsMounted()
 	if !mounted {
 		return "", errors.New("could not mount fs")
@@ -142,6 +148,9 @@ func (z *ZFS) CreateDataset(name string, resource string, creation time.Time, zf
 func (z *ZFS) destroyDatasetRec(path string) error {
 	z.readLock()
 	dataset, err := zfs.DatasetOpen(path)
+	if err == nil {
+		zfsstat.RecordRecursiveOpen(countHandles(&dataset))
+	}
 	z.readUnlock()
 	if err != nil {
 		return err
@@ -149,6 +158,7 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 	}
 	defer dataset.Close()
 	z.writeLock()
+	zfsstat.RecordWrite(zfsstat.OpUnmountAll)
 	err = dataset.UnmountAll(0)
 	z.writeUnlock()
 
@@ -157,6 +167,9 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 	}
 
 	z.readLock()
+	// Dataset.Clones re-opens the entire pool recursively inside go-libzfs,
+	// so this costs another full recursive open that is not visible here.
+	zfsstat.Inc(zfsstat.OpDatasetClones)
 	clones, err := dataset.Clones()
 	z.readUnlock()
 	if err != nil {
@@ -199,12 +212,16 @@ func (z *ZFS) destroyDatasetRec(path string) error {
 	dataset.Close()
 	z.readLock()
 	dataset, err = zfs.DatasetOpen(path)
+	if err == nil {
+		zfsstat.RecordRecursiveOpen(countHandles(&dataset))
+	}
 	z.readUnlock()
 	if err != nil {
 		return fmt.Errorf("could not open ds2: %w", err)
 	}
 	fmt.Println(" - Destroying", path)
 	z.writeLock()
+	zfsstat.RecordWrite(zfsstat.OpDatasetDestroy)
 	err = dataset.Destroy(false)
 	z.writeUnlock()
 	if err != nil {
@@ -221,6 +238,9 @@ func (z *ZFS) Destroy(name string) error {
 func (z *ZFS) DestroyAll() error {
 	z.readLock()
 	ds, err := zfs.DatasetOpen(z.pool)
+	if err == nil {
+		zfsstat.RecordRecursiveOpen(countHandles(&ds))
+	}
 	z.readUnlock()
 
 	if err != nil {
@@ -244,6 +264,7 @@ func (z *ZFS) DestroyAll() error {
 	isClone := map[string]bool{}
 	for _, c := range ds.Children {
 		z.readLock()
+		zfsstat.Inc(zfsstat.OpDatasetClones)
 		clones, err := c.Clones()
 		z.readUnlock()
 		if err != nil {
@@ -273,6 +294,7 @@ func (z *ZFS) DestroyAll() error {
 func (z *ZFS) List(dss *Dataset) ([]string, error) {
 	var list []string
 	for _, ds := range dss.Children {
+		zfsstat.Inc(zfsstat.OpDatasetPath)
 		p, err := ds.Path()
 		if err != nil {
 			return nil, err
@@ -281,11 +303,13 @@ func (z *ZFS) List(dss *Dataset) ([]string, error) {
 		if strings.HasPrefix(p, pre) {
 			list = append(list, strings.TrimPrefix(p, pre))
 		}
+		zfsstat.Inc(zfsstat.OpDatasetSnapshots)
 		snaps, err := ds.Snapshots()
 		if err != nil {
 			return nil, err
 		}
 		for _, snap := range snaps {
+			zfsstat.Inc(zfsstat.OpDatasetPath)
 			s, err := snap.Path()
 			if err != nil {
 				return nil, err
@@ -308,6 +332,7 @@ func (z *ZFS) ListClones(dss *Dataset) ([]servermodel.ServerInternalClone, error
 
 	cds := map[string]*zfs.Dataset{}
 	for i, cd := range dss.Children {
+		zfsstat.Inc(zfsstat.OpDatasetPath)
 		p, err := cd.Path()
 		if err != nil {
 			continue
@@ -320,6 +345,8 @@ func (z *ZFS) ListClones(dss *Dataset) ([]servermodel.ServerInternalClone, error
 		if !ok {
 			return nil, fmt.Errorf("child %s/%s not found", z.pool, c)
 		}
+
+		zfsstat.Add(zfsstat.OpGetUserProperty, 8) // the 8 zdap:* properties read below
 
 		owner, err := d.GetUserProperty(PropOwner)
 		if err != nil {
@@ -400,6 +427,7 @@ func (z *ZFS) ListSnaps(dss *Dataset) ([]servermodel.ServerInternalSnapshot, err
 	for _, cd := range dss.Children {
 		for i, ccd := range cd.Children {
 			if ccd.IsSnapshot() {
+				zfsstat.Inc(zfsstat.OpDatasetPath)
 				p, err := ccd.Path()
 				if err != nil {
 					continue
@@ -413,6 +441,8 @@ func (z *ZFS) ListSnaps(dss *Dataset) ([]servermodel.ServerInternalSnapshot, err
 		if !ok {
 			return nil, fmt.Errorf("child %s/%s not found", z.pool, s)
 		}
+
+		zfsstat.Add(zfsstat.OpGetUserProperty, 2) // zdap:created_at and zdap:resource
 
 		created, err := d.GetUserProperty(PropCreated)
 		if err != nil {
@@ -455,16 +485,19 @@ func (z *ZFS) SnapDataset(name string, resource string, created time.Time) error
 	z.writeLock()
 	defer z.writeUnlock()
 
+	zfsstat.RecordWrite(zfsstat.OpDatasetSnapshot)
 	ds, err := zfs.DatasetSnapshot(fmt.Sprintf("%s/%s@snap", z.pool, name), false, nil)
 	if err != nil {
 		return err
 	}
 	defer ds.Close()
 
+	zfsstat.RecordWrite(zfsstat.OpSetUserProperty)
 	err = ds.SetUserProperty(PropResource, resource)
 	if err != nil {
 		return err
 	}
+	zfsstat.RecordWrite(zfsstat.OpSetUserProperty)
 	err = ds.SetUserProperty(PropCreated, created.Format(TimestampFormat))
 	if err != nil {
 		return err
@@ -486,8 +519,10 @@ func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool, z
 	if err != nil {
 		return "", "", err
 	}
+	zfsstat.RecordRecursiveOpen(countHandles(&ds))
 	defer ds.Close()
 
+	zfsstat.Inc(zfsstat.OpFindSnapshotName)
 	ok, snap := ds.FindSnapshotName("@" + snapName)
 	if !ok {
 		return "", "", errors.New("could not find snapshot to clone")
@@ -497,11 +532,18 @@ func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool, z
 
 	cloneName := fmt.Sprintf("%s-clone-%s.%s", dsName, created, utils.RandStringRunes(3))
 
+	zfsstat.RecordWrite(zfsstat.OpDatasetClone)
 	clone, err := snap.Clone(fmt.Sprintf("%s/%s", z.pool, cloneName), zfsPropMap(zfsProps))
 	if err != nil {
 		return "", "", err
 	}
 	defer clone.Close()
+
+	// 6 zdap:* properties are written on the new clone and 2 are read off the
+	// origin dataset below.
+	zfsstat.Add(zfsstat.OpSetUserProperty, 6)
+	zfsstat.Add(zfsstat.OpGetUserProperty, 2)
+	zfsstat.Add(zfsstat.VolKernelIoctls, 6*zfsstat.IoctlsPerWrite)
 
 	err = clone.SetUserProperty(PropOwner, owner)
 	if err != nil {
@@ -537,10 +579,12 @@ func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool, z
 		return "", "", err
 	}
 
+	zfsstat.RecordWrite(zfsstat.OpMount)
 	err = clone.Mount("", 0)
 	if err != nil {
 		return "", "", err
 	}
+	zfsstat.Inc(zfsstat.OpIsMounted)
 	mounted, path := clone.IsMounted()
 	if !mounted {
 		return "", "", errors.New("could not mount clone fs")
@@ -554,6 +598,7 @@ func (z *ZFS) SetProperties(name string, props map[string]string, forgiving bool
 	if err != nil {
 		return err
 	}
+	zfsstat.RecordSingleOpen()
 	return z.SetDatasetProperties(ds, props, forgiving)
 }
 
@@ -567,6 +612,7 @@ func (z *ZFS) SetDatasetProperties(dataset zfs.Dataset, props map[string]string,
 
 	var errs []error
 	for prop, val := range zfsPropMap(props) {
+		zfsstat.RecordWrite(zfsstat.OpSetProperty)
 		err := dataset.SetProperty(prop, val.Value)
 		if err != nil {
 			if forgiving {
@@ -586,47 +632,8 @@ func (z *ZFS) SetUserProperty(dataset zfs.Dataset, prop string, value string) er
 	z.writeLock()
 	defer z.writeUnlock()
 
+	zfsstat.RecordWrite(zfsstat.OpSetUserProperty)
 	return dataset.SetUserProperty(prop, value)
-}
-
-func (z *ZFS) UsedSpace(dss *Dataset) (uint64, error) {
-	//p, err := zfs.PoolOpen(z.pool)
-	p, err := dss.Pool()
-	if err != nil {
-		return 0, err
-	}
-	s, err := p.VDevTree()
-	if err != nil {
-		return 0, err
-	}
-	return s.Stat.Alloc, nil
-}
-
-func (z *ZFS) FreeSpace(dss *Dataset) (uint64, error) {
-	//p, err := zfs.PoolOpen(z.pool)
-	p, err := dss.Pool()
-	if err != nil {
-		return 0, err
-	}
-	s, err := p.VDevTree()
-	if err != nil {
-		return 0, err
-	}
-	return s.Stat.Space - s.Stat.Alloc, nil
-
-}
-
-func (z *ZFS) TotalSpace(dss *Dataset) (uint64, error) {
-	//p, err := zfs.PoolOpen(z.pool)
-	p, err := dss.Pool()
-	if err != nil {
-		return 0, err
-	}
-	s, err := p.VDevTree()
-	if err != nil {
-		return 0, err
-	}
-	return s.Stat.Space, nil
 }
 
 func (z *ZFS) Open() (*Dataset, error) {
@@ -636,7 +643,21 @@ func (z *ZFS) Open() (*Dataset, error) {
 	if err != nil {
 		return nil, err
 	}
+	// DatasetOpen walks the whole pool: every filesystem and every snapshot
+	// below z.pool gets a handle with its full property table loaded, whether
+	// or not the caller needs it. Count what it materialised.
+	zfsstat.RecordRecursiveOpen(countHandles(&dss))
 	return &Dataset{Dataset: &dss}, nil
+}
+
+// countHandles returns the number of dataset handles in an opened tree. The
+// walk is in memory only; the handles were already materialised by DatasetOpen.
+func countHandles(d *zfs.Dataset) int {
+	n := 1
+	for i := range d.Children {
+		n += countHandles(&d.Children[i])
+	}
+	return n
 }
 
 func (z *ZFS) readLock() {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -17,8 +18,8 @@ import (
 
 var errProxyNotFound = errors.New("could not find proxy container")
 
-func getStatus(dss *zfs.Dataset, app *core.Core) (zdap.ServerStatus, error) {
-	return app.ServerStatus(dss)
+func getStatus(ctx context.Context, app *core.Core) (zdap.ServerStatus, error) {
+	return app.ServerStatus(ctx)
 }
 
 func getResources(dss *zfs.Dataset, owner string, app *core.Core) ([]servermodel.ServerInternalResource, error) {

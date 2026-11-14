@@ -71,6 +71,18 @@ func main() {
 				},
 			},
 			{
+				Name:  "check-zfs",
+				Usage: "checks the zfs channel program and zpool paths that replace go-libzfs, and prints what they return",
+				Action: func(c *cli.Context) error {
+					// Exit non-zero on failure, so the check can be scripted.
+					// zdapd's other commands only print their errors.
+					if err := checkZFS(c.Context, z); err != nil {
+						return cli.Exit(fmt.Sprintf("[Error] %v", err), 1)
+					}
+					return nil
+				},
+			},
+			{
 				Name:  "create",
 				Usage: "create things",
 				Subcommands: []*cli.Command{
@@ -467,4 +479,63 @@ func destroyClone(clone string, docker *client.Client, z *zfs.ZFS) error {
 
 	}
 	return z.Destroy(clone)
+}
+
+// checkZFS exercises the paths that are being migrated off go-libzfs and
+// prints what they return, so they can be verified without the API.
+//
+// The channel program needs root, like the rest of zdapd, so this is the
+// quickest way to tell a permission problem from a broken program:
+//
+//	sudo env ZPOOL=zdap/1/databases CONFIG_DIR=/zdap/1/config go run ./cmd/zdapd check-zfs
+func checkZFS(ctx context.Context, z *zfs.ZFS) error {
+	fmt.Println("== channel program: list datasets ==")
+	names, err := z.ListNames(ctx)
+	if err != nil {
+		return fmt.Errorf("channel program failed: %w", err)
+	}
+
+	var bases, snaps, clones, other []string
+	for _, name := range names {
+		switch {
+		case zfs.IsCloneName(name):
+			clones = append(clones, name)
+		case zfs.IsSnapName(name):
+			snaps = append(snaps, name)
+		case zfs.IsBaseName(name):
+			bases = append(bases, name)
+		default:
+			other = append(other, name)
+		}
+	}
+	for _, group := range []struct {
+		label string
+		names []string
+	}{
+		{"bases", bases},
+		{"snapshots", snaps},
+		{"clones", clones},
+		{"unrecognised", other},
+	} {
+		sort.Strings(group.names)
+		fmt.Printf(" %s: %d\n", group.label, len(group.names))
+		for _, n := range group.names {
+			fmt.Println("   -", n)
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("== zpool list: pool space ==")
+	space, err := z.Space(ctx)
+	if err != nil {
+		return fmt.Errorf("zpool list failed: %w", err)
+	}
+	fmt.Printf(" total %d\n used  %d\n free  %d\n", space.Total, space.Used, space.Free)
+	if space.Used+space.Free != space.Total {
+		return fmt.Errorf("used + free (%d) does not add up to total (%d)", space.Used+space.Free, space.Total)
+	}
+
+	fmt.Println()
+	fmt.Println("both paths work, GET /status needs nothing else from ZFS")
+	return nil
 }
