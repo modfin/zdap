@@ -14,7 +14,7 @@ import (
 	"github.com/modfin/zdap/internal/zfs/zfsstat"
 )
 
-// This is the migration path away from go-libzfs: a zfs channel program runs
+// This is what replaced go-libzfs on the read path: a zfs channel program runs
 // inside the kernel in one transaction and returns only what was asked for, so
 // a listing costs one ioctl instead of a dataset handle and a full property
 // table load per dataset. See bench/README.md for the numbers.

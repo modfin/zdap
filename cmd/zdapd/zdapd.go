@@ -88,7 +88,7 @@ func main() {
 			},
 			{
 				Name:  "check-zfs",
-				Usage: "checks the zfs channel program and zpool paths that replace go-libzfs, and prints what they return",
+				Usage: "checks the zfs channel program and zpool paths and prints what they return",
 				Action: func(c *cli.Context) error {
 					return checkZFS(c.Context, z)
 				},
@@ -487,8 +487,8 @@ func destroyClone(ctx context.Context, clone string, docker *client.Client, z *z
 	return z.Destroy(clone)
 }
 
-// checkZFS exercises the paths that are being migrated off go-libzfs and
-// prints what they return, so they can be verified without the API.
+// checkZFS exercises the read paths and prints what they return, so they can
+// be verified without the API.
 //
 // The channel program needs root, like the rest of zdapd, so this is the
 // quickest way to tell a permission problem from a broken program:

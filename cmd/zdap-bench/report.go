@@ -37,12 +37,12 @@ func printReport(r Report) {
 			num(res.Ops[volPropValues], 0),
 			num(res.Ops[opUserProp], 0),
 			num(res.Ops[opPath], 0),
-			num(res.LibzfsCallsPerRequest, 0),
+			num(res.ZfsCallsPerRequest, 0),
 			num(res.Ops[volIoctls], 0),
 		)
 		totIoctls += res.Ops[volIoctls]
 		totHandles += res.Ops[volHandles]
-		totLibzfs += res.LibzfsCallsPerRequest
+		totLibzfs += res.ZfsCallsPerRequest
 	}
 	fmt.Fprintln(w, "\t\t\t\t\t\t\t\t\t")
 	fmt.Fprintf(w, "one of each\t\t\t\t%s\t\t\t\t%s\t%s\n", num(totHandles, 0), num(totLibzfs, 0), num(totIoctls, 0))
@@ -125,7 +125,7 @@ func printComparison(base, now Report) {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			r.Name,
 			delta(b.Ops[volHandles], r.Ops[volHandles]),
-			delta(b.LibzfsCallsPerRequest, r.LibzfsCallsPerRequest),
+			delta(b.ZfsCallsPerRequest, r.ZfsCallsPerRequest),
 			delta(b.Ops[volIoctls], r.Ops[volIoctls]),
 			delta(b.ClientMsAvg, r.ClientMsAvg),
 		)

@@ -17,10 +17,7 @@ import (
 // sudo is needed because Load runs a zfs channel program, and channel programs
 // are root only. Besides ns/op they report the ZFS work per operation:
 //
-//	handles/op   dataset handles materialised through libzfs, which should now
-//	             be zero on the read path
-//	propvals/op  native property values read out of libzfs, likewise
-//	libzfs/op    libzfs entry point calls, including channel program runs
+//	zfscalls/op  calls out to ZFS: channel programs and zfs/zpool runs
 //	ioctls/op    estimated /dev/zfs ioctls
 
 func benchPool(b *testing.B) *zfs.ZFS {
@@ -51,9 +48,7 @@ func reportZFSWork(b *testing.B, before zfsstat.Stats) {
 	b.Helper()
 	d := zfsstat.Snapshot().Sub(before)
 	n := float64(b.N)
-	b.ReportMetric(float64(d[zfsstat.VolDatasetHandles])/n, "handles/op")
-	b.ReportMetric(float64(d[zfsstat.VolPropertyValues])/n, "propvals/op")
-	b.ReportMetric(float64(d.LibzfsCalls())/n, "libzfs/op")
+	b.ReportMetric(float64(d.Calls())/n, "zfscalls/op")
 	b.ReportMetric(float64(d[zfsstat.VolKernelIoctls])/n, "ioctls/op")
 }
 

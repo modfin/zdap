@@ -45,9 +45,9 @@ func zfsStatsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		overlapped := zfsstat.Enter()
 		start := time.Now()
 
-		// Recorded in a defer so that a panicking handler (and zdapd has one,
-		// see /status on ZFS versions newer than go-libzfs knows about) still
-		// reports the work it managed to do.
+		// Recorded in a defer so that a panicking handler still reports the
+		// work it managed to do. echo recovers panics, so without this a
+		// handler that died would simply be missing from the numbers.
 		defer func() {
 			dur := time.Since(start)
 			zfsstat.Leave()
@@ -73,9 +73,9 @@ func registerZFSOpsRoutes(e *echo.Echo) {
 
 		var attributed uint64
 		for _, r := range routes {
-			attributed += r.Ops.LibzfsCalls()
+			attributed += r.Ops.Calls()
 		}
-		total := global.LibzfsCalls()
+		total := global.Calls()
 
 		var unattributed uint64
 		if total > attributed {

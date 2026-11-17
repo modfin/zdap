@@ -284,16 +284,19 @@ func (c *ClonePool) Claim(timeout time.Duration, owner string) (servermodel.Serv
 		timeout = maxTimeout
 	}
 	expires := time.Now().Add(timeout)
-	err = c.cloneContext.Z.SetUserProperty(claim.Name, zfs.PropExpires, zfs.FormatTimestamp(expires))
+	// Owner and expiry go on in one write. They only mean anything together:
+	// a clone with an expiry and no owner is neither free nor claimed, and
+	// writing them separately left exactly that state visible in between, and
+	// permanently if the second write failed.
+	err = c.cloneContext.Z.SetUserProperties(claim.Name, map[string]string{
+		zfs.PropExpires: zfs.FormatTimestamp(expires),
+		zfs.PropOwner:   owner,
+	})
 	c.triggerGCAfterDelay(timeout)
 	if err != nil {
 		return servermodel.ServerInternalClone{}, err
 	}
 	c.ClonesAvailable--
-	err = c.cloneContext.Z.SetUserProperty(claim.Name, zfs.PropOwner, owner)
-	if err != nil {
-		return servermodel.ServerInternalClone{}, err
-	}
 
 	claim.APIPort = c.cloneContext.ApiPort
 	claim.Server = c.cloneContext.NetworkAddress

@@ -1,14 +1,17 @@
 // Package zfsstat counts the ZFS work zdapd performs.
 //
-// It exists to make the cost of the current "fetch everything, filter in Go"
-// access pattern measurable, so that the migration to zfs channel programs can
-// be driven by numbers instead of intuition.
+// It exists to make the cost of zdapd's ZFS access measurable, so that the
+// migration off go-libzfs could be driven by numbers instead of intuition.
+// That migration is done: every path is a channel program or a zfs/zpool
+// command, and the counters now simply say how many of each a request costs.
 //
 // Two kinds of counters are kept, distinguished by key prefix:
 //
-//	op.*   one libzfs entry point call made by zdapd (see the Op* constants)
-//	vol.*  the volume of data that call pulled out of ZFS (handles, property
-//	       values, estimated kernel ioctls)
+//	op.*   one call out to ZFS made by zdapd (see the Op* constants)
+//	vol.*  the volume that call pulled out of ZFS (estimated kernel ioctls)
+//
+// bench/baseline.json holds the pre-migration numbers, recorded while the
+// libzfs counters that are gone from here still existed.
 //
 // All counters are process global and monotonically increasing. A measurement
 // is a Snapshot before and after the work, then Sub. That is exact as long as
@@ -23,89 +26,54 @@ import (
 	"time"
 )
 
-// libzfs entry points that zdapd calls. One count == one call from zdap code.
+// Calls out to ZFS. One count == one call from zdap code.
 const (
-	// OpDatasetOpenRecursive is zfs.DatasetOpen: opens the named dataset and
-	// every descendant filesystem and snapshot, loading the full property
-	// table for each one. This is what ZFS.Open does on the pool root, and it
-	// is the single most expensive thing zdapd does.
-	OpDatasetOpenRecursive = "op.dataset_open_recursive"
-	// OpDatasetOpenSingle is zfs.DatasetOpenSingle: one dataset, no children.
-	OpDatasetOpenSingle = "op.dataset_open_single"
-	OpDatasetCreate     = "op.dataset_create"
-	OpDatasetSnapshot   = "op.dataset_snapshot"
-	OpDatasetClone      = "op.dataset_clone"
-	OpDatasetDestroy    = "op.dataset_destroy"
-	// OpDatasetClones is Dataset.Clones. Note that go-libzfs implements it by
-	// re-opening the whole pool recursively, so each call costs another full
-	// OpDatasetOpenRecursive underneath.
-	OpDatasetClones = "op.dataset_clones"
-	// OpDatasetPath is Dataset.Path. Served from the already open handle, so
-	// no kernel round trip, but zdapd calls it once per dataset per listing.
-	OpDatasetPath = "op.dataset_path"
-	// OpDatasetSnapshots is Dataset.Snapshots, an in-memory filter over the
-	// children that were already materialised by the recursive open.
-	OpDatasetSnapshots = "op.dataset_snapshots"
-	// OpGetUserProperty is Dataset.GetUserProperty. Served from the open
-	// handle's nvlist, but it takes the go-libzfs global lock every time.
-	OpGetUserProperty  = "op.get_user_property"
-	OpSetUserProperty  = "op.set_user_property"
-	OpSetProperty      = "op.set_property"
-	OpFindSnapshotName = "op.find_snapshot_name"
-	OpMount            = "op.mount"
-	OpUnmountAll       = "op.unmount_all"
-	OpIsMounted        = "op.is_mounted"
 	// OpChannelProgram is one `zfs program` run: a Lua program executed inside
 	// the kernel in a single transaction, returning only what was asked for.
-	// This is what the libzfs read paths are being migrated to.
+	// This is what the read paths run on.
 	OpChannelProgram = "op.channel_program"
 	// OpZpoolList is one `zpool list` run.
 	OpZpoolList = "op.zpool_list"
+	// OpZfsDestroy is one `zfs destroy -R -f` run. It replaces a recursive
+	// open, an unmount, a Dataset.Clones (itself a full recursive open of the
+	// pool) and a libzfs destroy, per level of the hierarchy being removed.
+	// ZFS does that walk internally now, so the ioctls it costs are neither
+	// counted nor estimated here; what the counter shows is that one command
+	// replaced work that used to grow with the size of the pool.
+	OpZfsDestroy = "op.zfs_destroy"
+	// OpZfsClone is one `zfs clone -o ...` run. It replaces a recursive open
+	// of the base dataset, a snapshot lookup, a libzfs clone, six separate
+	// property writes and an explicit mount.
+	OpZfsClone = "op.zfs_clone"
+	// OpZfsGet is one `zfs get` run for a named set of properties on one
+	// dataset. This is what reading a couple of properties costs now that it
+	// no longer means opening the pool to get at a handle.
+	OpZfsGet = "op.zfs_get"
+	// OpZfsCreate is one `zfs create -o ...` run: the dataset, its zdap:*
+	// properties and its mount, where the libzfs path was a create, two
+	// property writes and an explicit mount.
+	OpZfsCreate = "op.zfs_create"
+	// OpZfsSnapshot is one `zfs snapshot -o ...` run.
+	OpZfsSnapshot = "op.zfs_snapshot"
+	// OpZfsSet is one `zfs set` run, however many properties it carries. The
+	// libzfs path it replaces opened the dataset and then wrote one property
+	// per call.
+	OpZfsSet = "op.zfs_set"
 )
 
-// Volume counters: how much was actually fetched.
+// Volume counters: how much the call actually cost.
 const (
-	// VolDatasetHandles is the number of dataset handles materialised by
-	// recursive opens: one per filesystem and one per snapshot, each with its
-	// full property table loaded.
-	VolDatasetHandles = "vol.dataset_handles"
-	// VolPropertyTableLoads is the number of full property-table loads
-	// (zfs_refresh_properties + a read of every native property). One per
-	// materialised handle.
-	VolPropertyTableLoads = "vol.property_table_loads"
-	// VolPropertyValues is the number of individual native property values
-	// read out of libzfs, i.e. VolPropertyTableLoads * NativePropsPerDataset.
-	VolPropertyValues = "vol.property_values"
-	// VolKernelIoctls is the estimated number of /dev/zfs ioctls. See
-	// IoctlsPerHandle for how the estimate is calibrated and checked.
+	// VolKernelIoctls is the estimated number of /dev/zfs ioctls.
+	//
+	// Only the two read paths add to it. A zfs create, clone, snapshot, set or
+	// destroy does its walk inside the kernel, so what it costs in ioctls is
+	// not something zdap can count from the outside -- and no longer something
+	// that grows with the size of the pool, which is what this was built to
+	// show.
 	VolKernelIoctls = "vol.kernel_ioctls_est"
 )
 
-// NativePropsPerDataset is how many native properties go-libzfs reads for every
-// dataset handle it opens (the DatasetPropType..DatasetNumProps loop in
-// Dataset.ReloadProperties). zdap reads at most 8 of them.
-const NativePropsPerDataset = 91
-
-// Calibration of the ioctl estimate, measured on ZFS 2.4.1 with
-// go-libzfs v2.22.1 by tracing ioctls on /dev/zfs (bench/zfs-ioctl-bench.sh
-// re-measures it):
-//
-//	DatasetOpenSingle(pool)            8 ioctls
-//	DatasetOpen(pool), 34 handles    252 ioctls
-//	Path / GetUserProperty             0 ioctls (served from the open handle)
-//
-// 252 ioctls over 34 handles is 7.4 per handle: 4x OBJSET_ZPLPROPS,
-// 1x OBJSET_STATS, ~1.3x DATASET_LIST_NEXT and 1x SNAPSHOT_LIST_NEXT.
 const (
-	// IoctlsPerHandleX10 is the measured ioctl cost of materialising one dataset
-	// handle during a recursive open, scaled by 10 to stay in integers.
-	IoctlsPerHandleX10 = 74
-	// IoctlsPerSingleOpen is the measured ioctl cost of DatasetOpenSingle.
-	IoctlsPerSingleOpen = 8
-	// IoctlsPerWrite is the assumed cost of a property set, create, clone,
-	// snapshot or destroy. These are not on the read path the migration
-	// targets, so they are counted but not calibrated.
-	IoctlsPerWrite = 1
 	// IoctlsPerChannelProgram is the cost of a `zfs program` run: one
 	// ZFS_IOC_CHANNEL_PROGRAM, whatever the program walks inside the kernel.
 	// That invariance is the point of the migration.
@@ -140,35 +108,6 @@ func Add(key string, n uint64) {
 // Inc adds one to a counter.
 func Inc(key string) { counter(key).Add(1) }
 
-// RecordRecursiveOpen records one zfs.DatasetOpen that materialised handles
-// dataset handles (the dataset itself plus every descendant and snapshot).
-func RecordRecursiveOpen(handles int) {
-	if handles < 0 {
-		handles = 0
-	}
-	h := uint64(handles)
-	Inc(OpDatasetOpenRecursive)
-	Add(VolDatasetHandles, h)
-	Add(VolPropertyTableLoads, h)
-	Add(VolPropertyValues, h*NativePropsPerDataset)
-	Add(VolKernelIoctls, (h*IoctlsPerHandleX10)/10)
-}
-
-// RecordSingleOpen records one zfs.DatasetOpenSingle.
-func RecordSingleOpen() {
-	Inc(OpDatasetOpenSingle)
-	Add(VolDatasetHandles, 1)
-	Add(VolPropertyTableLoads, 1)
-	Add(VolPropertyValues, NativePropsPerDataset)
-	Add(VolKernelIoctls, IoctlsPerSingleOpen)
-}
-
-// RecordWrite records a libzfs call that changes state.
-func RecordWrite(op string) {
-	Inc(op)
-	Add(VolKernelIoctls, IoctlsPerWrite)
-}
-
 // Stats is a point-in-time copy of the counters.
 type Stats map[string]uint64
 
@@ -195,8 +134,9 @@ func (s Stats) Sub(other Stats) Stats {
 	return d
 }
 
-// LibzfsCalls is the number of op.* calls in s.
-func (s Stats) LibzfsCalls() uint64 {
+// Calls is the number of op.* calls in s: every channel program,
+// zfs and zpool run zdapd made.
+func (s Stats) Calls() uint64 {
 	var n uint64
 	for k, v := range s {
 		if len(k) > 3 && k[:3] == "op." {

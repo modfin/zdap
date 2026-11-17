@@ -39,8 +39,10 @@ type Result struct {
 	// Ops is the ZFS work per request: counter name to average count. See
 	// internal/zfs/zfsstat for what each counter means.
 	Ops map[string]float64 `json:"ops_per_request"`
-	// LibzfsCallsPerRequest is the sum of the op.* counters.
-	LibzfsCallsPerRequest float64 `json:"libzfs_calls_per_request"`
+	// ZfsCallsPerRequest is the sum of the op.* counters. The json name is
+	// kept as it was so that baselines recorded before the go-libzfs removal
+	// still compare against runs made after it.
+	ZfsCallsPerRequest float64 `json:"libzfs_calls_per_request"`
 }
 
 // SkippedTarget is an endpoint that was not benchmarked, and why.
@@ -167,7 +169,7 @@ func applyRouteStats(res *Result, report opsReport, t target) {
 	}
 	for k, v := range res.Ops {
 		if len(k) > 3 && k[:3] == "op." {
-			res.LibzfsCallsPerRequest += v
+			res.ZfsCallsPerRequest += v
 		}
 	}
 }

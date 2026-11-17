@@ -5,26 +5,6 @@ import (
 	"time"
 )
 
-func TestRecordRecursiveOpenCountsVolume(t *testing.T) {
-	before := Snapshot()
-	RecordRecursiveOpen(34)
-	d := Snapshot().Sub(before)
-
-	if got := d[OpDatasetOpenRecursive]; got != 1 {
-		t.Errorf("recursive opens = %d, want 1", got)
-	}
-	if got := d[VolDatasetHandles]; got != 34 {
-		t.Errorf("handles = %d, want 34", got)
-	}
-	if got, want := d[VolPropertyValues], uint64(34*NativePropsPerDataset); got != want {
-		t.Errorf("property values = %d, want %d", got, want)
-	}
-	// 34 handles at the calibrated 7.4 ioctls each.
-	if got, want := d[VolKernelIoctls], uint64(251); got != want {
-		t.Errorf("ioctl estimate = %d, want %d", got, want)
-	}
-}
-
 func TestSubDropsUnchangedCounters(t *testing.T) {
 	before := Stats{"op.x": 3, "op.y": 1}
 	after := Stats{"op.x": 3, "op.y": 5, "op.z": 2}
@@ -50,15 +30,14 @@ func TestSubDoesNotUnderflow(t *testing.T) {
 	}
 }
 
-func TestLibzfsCallsCountsOnlyOpCounters(t *testing.T) {
+func TestCallsCountsOnlyOpCounters(t *testing.T) {
 	s := Stats{
-		"op.dataset_open_recursive": 1,
-		"op.get_user_property":      30,
-		VolDatasetHandles:           34,
-		VolPropertyValues:           3094,
+		OpChannelProgram: 1,
+		OpZfsGet:         30,
+		VolKernelIoctls:  3094,
 	}
-	if got := s.LibzfsCalls(); got != 31 {
-		t.Errorf("libzfs calls = %d, want 31", got)
+	if got := s.Calls(); got != 31 {
+		t.Errorf("calls = %d, want 31", got)
 	}
 }
 

@@ -1,10 +1,14 @@
 # Benchmarking zdapd's ZFS access
 
-zdapd answers every REST request by opening the whole zpool recursively and
-filtering the result in Go. This directory holds the tooling to measure what
-that costs per endpoint, so the move to
+zdapd used to answer every REST request by opening the whole zpool recursively
+through go-libzfs and filtering the result in Go. This directory holds the
+tooling that measured what that cost per endpoint, so the move to
 [zfs channel programs](https://openzfs.github.io/openzfs-docs/man/master/8/zfs-program.8.html)
-can be driven by numbers.
+and the `zfs`/`zpool` commands could be driven by numbers.
+
+That move is finished: go-libzfs is gone, zdapd builds with `CGO_ENABLED=0`,
+and `bench/baseline.json` is the record of what the old path cost. The tooling
+stays, to keep the new paths honest.
 
 There are three measurements, from cheapest to most authoritative:
 
@@ -19,11 +23,16 @@ There are three measurements, from cheapest to most authoritative:
 `internal/zfs/zfsstat` holds process-global counters that `internal/zfs`
 increments. Keys are prefixed by kind:
 
-- `op.*` — one call out to ZFS: `op.channel_program` and `op.zpool_list` for the
-  migrated paths, `op.dataset_open_recursive`, `op.get_user_property` and the
-  rest for what still goes through go-libzfs.
-- `vol.*` — how much came out: `vol.dataset_handles`, `vol.property_table_loads`,
-  `vol.property_values`, `vol.kernel_ioctls_est`.
+- `op.*` — one call out to ZFS: `op.channel_program` and `op.zpool_list` for
+  the read paths, `op.zfs_get`, `op.zfs_create`, `op.zfs_snapshot`,
+  `op.zfs_clone`, `op.zfs_set` and `op.zfs_destroy` for the rest.
+- `vol.*` — `vol.kernel_ioctls_est`, the estimated `/dev/zfs` ioctls.
+
+The `vol.dataset_handles`, `vol.property_table_loads` and `vol.property_values`
+counters, and the `op.dataset_*`/`op.*_property` keys, are gone with the
+library that made them meaningful. They still appear in `baseline.json`, which
+was recorded before the migration; a comparison against it simply shows them
+dropping to nothing.
 
 zdapd attributes the delta of these counters to the route that caused it and
 serves the result on `GET /debug/zfs-ops`; `DELETE /debug/zfs-ops` resets the
@@ -31,9 +40,22 @@ per-route part. Because the counters are global, a delta only belongs to one
 request if nothing else touched ZFS at the same time, so every tool here
 requests serially and zdapd reports an `overlapped` count when they did not.
 
-`vol.kernel_ioctls_est` is derived, not observed. It uses the calibration in
-`zfsstat`, measured on ZFS 2.4.1 with go-libzfs v2.22.1 by tracing ioctls on
-`/dev/zfs`:
+`vol.kernel_ioctls_est` is derived, not observed, and only the two read paths
+add to it: a channel program costs one `ZFS_IOC_CHANNEL_PROGRAM` however much
+it walks inside the kernel, and `zpool list -Hp` costs three. A `zfs` command
+that creates, clones, snapshots, sets or destroys does its own walk in the
+kernel, so what it costs in ioctls is not something zdap can count from the
+outside. That invariance is the point: none of these grow with the size of the
+pool.
+
+The counters do not include the fork and exec each command pays, around 4 ms
+for `zpool list` on the machine this was calibrated on. The benchmark's wall
+clock column covers that.
+
+### What this replaced
+
+For the record, measured on ZFS 2.4.1 with go-libzfs v2.22.1 by tracing ioctls
+on `/dev/zfs`:
 
 ```
 DatasetOpenSingle(pool)             8 ioctls
@@ -41,9 +63,8 @@ DatasetOpen(pool), 34 handles     252 ioctls   (7.4 per handle)
 Path(), GetUserProperty()           0 ioctls   (served from the open handle)
 ```
 
-`bench/zfs-ioctl-bench.sh` re-measures it; if ZFS or go-libzfs is upgraded and
-the script and the estimate drift apart, update `IoctlsPerHandleX10`. As of
-2026-11-14 the estimate and the traced count agree to within 2%:
+Every read endpoint paid that 252 once per request, and so did each level of a
+recursive destroy:
 
 ```
 ENDPOINT                                    ESTIMATED  TRACED
@@ -55,9 +76,10 @@ GET  /resources/:resource/clones            251        250.0
 GET  /resources/:resource/snaps/:createdAt  251        250.0
 ```
 
-and the traced ioctls are all metadata reads, in the proportions the model
-assumes: 54% `ZFS_IOC_OBJSET_ZPLPROPS`, 18% `ZFS_IOC_DATASET_LIST_NEXT`,
-14% `ZFS_IOC_OBJSET_STATS`, 13% `ZFS_IOC_SNAPSHOT_LIST_NEXT`.
+`bench/zfs-ioctl-bench.sh` produced that table. It traces whatever zdapd does,
+so it still runs, but its calibration check was written against the libzfs
+estimate and has nothing left to compare: reworking it to trace the command
+paths instead is unfinished business.
 
 ## Running it
 
@@ -164,11 +186,10 @@ What changed:
   needs closing.
 - `ZFS.Open`, `ZFS.List`, `ZFS.ListClones`, `ZFS.ListSnaps` and `ZFS.ListBases`
   are gone, along with the `zfs.Dataset` wrapper.
-- `ZFS.SetUserProperty` takes a dataset name instead of an open handle, and
-  opens that one dataset itself (8 ioctls). Three call sites in `clonepool` and
-  `cloning` used to need a handle from a full recursive open just to write one
-  property; `servermodel.ServerInternalClone` no longer carries a `*zfs.Dataset`
-  at all.
+- `ZFS.SetUserProperty` takes a dataset name instead of an open handle. Three
+  call sites in `clonepool` and `cloning` used to need a handle from a full
+  recursive open just to write one property; `servermodel.ServerInternalClone`
+  no longer carries a `*zfs.Dataset` at all.
 - `getSnaps` groups the resource's clones once instead of once per snapshot.
   That N+1 was invisible on a pool with one snapshot per resource and grew as
   `R + ΣN` full tree walks per request.
@@ -249,7 +270,8 @@ datasets, but it does remove the unprivileged dev loop.
 
 ## Where the work is
 
-`internal/zfs` is still the only package that touches ZFS. The read path is now:
+`internal/zfs` is still the only package that touches ZFS, and nothing in it
+links against a library any more:
 
 ```
 handler           → z.Load(ctx)                 one channel program
@@ -258,25 +280,77 @@ handler           → z.Load(ctx)                 one channel program
   getStatus       → core.ServerStatus(ctx)      → z.Load + z.Space
 ```
 
-go-libzfs is left only on the write path: `CreateDataset`, `SnapDataset`,
-`CloneDataset`, `SetProperties`, `SetUserProperty` and the destroy walk. Those
-are the next thing to look at, and they are a different problem: `zfs.sync.*`
-in a channel program can clone and destroy, but a channel program cannot mount,
-which `CreateDataset` and `CloneDataset` both need.
+The write path is one command each:
+
+| | command | replaced |
+|---|---|---|
+| `CreateDataset` | `zfs create -o …` | create + 2 property writes + mount |
+| `SnapDataset` | `zfs snapshot -o …` | snapshot + 2 property writes |
+| `CloneDataset` | `zfs clone -o …` | recursive open + lookup + clone + 6 property writes + mount |
+| `SetUserProperties` | `zfs set a=b c=d` | single open + one write per property |
+| `Destroy` | `zfs destroy -R -f` | per level: 2 recursive opens, an unmount, a `Clones()` that reopened the whole pool, and a destroy |
+
+Each of these sets its `zdap:*` properties as part of creating the dataset, so
+a listing can never see a base, snapshot or clone without them. That window
+existed on every one of them before.
+
+Two consequences worth knowing:
+
+- **Channel programs need root**, where `zfs list`/`zfs get` do not. zdapd
+  already runs as root because it mounts datasets, so this is not a new
+  requirement, but it does mean the read path cannot be exercised by an
+  unprivileged process.
+- **`ZFS.poolLock` is no longer required by anything.** It existed to
+  serialise go-libzfs's non-thread-safe global state. It is kept as a write
+  lock around the mutating commands, which serialises clone creation across
+  resources; whether that is still wanted is an open question and a separate
+  change.
 
 ## Known issues found while benchmarking
 
+One is still open: a failed base restore leaves its dataset behind. Everything
+else here has been fixed, and the `zfs list -j` entry is a constraint rather
+than a defect.
+
+- **A failed base restore leaves the dataset behind, and a later
+  `snap --use-existing` can publish it.** `bases.CreateBaseAndSnap` creates the
+  dataset and then has seven `return err` points before `SnapDataset`:
+  container create, container start, the health wait, the retrieval script, the
+  creation script and the stop/remove pair. None of them destroys the dataset,
+  and the container is left running too. The retrieval and creation scripts are
+  the most failure-prone part of zdap, and this runs nightly from cron.
+
+  It is worse than the clone version below, because `Core.CreateBaseAndSnap`
+  picks the base to reuse by sorting names and taking the last:
+
+  ```go
+  latestBase := slicez.Reverse(slicez.Sort(resourceBases))[0]
+  return c.z.SnapDataset(latestBase, r.Name, t)
+  ```
+
+  A dataset left behind by a failed restore carries a newer timestamp than the
+  last good base, so it sorts first. `zdapd snap --use-existing` then
+  snapshots a half-restored database, and the clone pool hands clones of it
+  out. Nothing reclaims an orphan base either: the only readers of
+  `Listing.Bases()` are `DestroyAll` and that lookup.
+
+  The fix is the shape of the clone rollback below — a flag and a deferred
+  teardown of the dataset and whatever container exists — for the same reason
+  it is a flag there rather than a check on the returned error.
 - **`GET /status` panicked on this host (fixed).** `UsedSpace`/`FreeSpace`/
   `TotalSpace` called `Dataset.Pool()`, and go-libzfs v2.22.1 sizes its pool
   property array for an older ZFS than 2.4.1, so `Pool.ReloadProperties` wrote
   past the end of it: `index out of range [40] with length 37` at
   `go-libzfs/v2@v2.22.1/zpool.go:529`. Replaced by `ZFS.Space`, which reads the
   same vdev statistics from `zpool list -Hp` in one call.
-- **`zfs list -j` is not an option here.** JSON output landed in OpenZFS 2.3,
-  and some servers still run Ubuntu 24.04, which ships 2.2.2. Channel programs
-  are fine: they have been in OpenZFS since 0.8.0. `Space` deliberately parses
-  `-Hp` tab output rather than `-j --json-int` for that reason.
-- **Clone creation is broken on this host, unrelated to the migration
+- **`zfs list -j` is not an option here (a constraint, not a defect).** JSON
+  output landed in OpenZFS 2.3, and some servers still run Ubuntu 24.04, which
+  ships 2.2.2. Channel programs are fine: they have been in OpenZFS since
+  0.8.0. Everything that shells out parses `-H` tab output for that reason:
+  `Space` uses `zpool list -Hp`, and the property reads use
+  `zfs get -H -o property,value`. The only `-j` is `zfs program -jn`, which is
+  the channel program's own return value, not `zfs list` output.
+- **Clone creation was broken on this host, unrelated to the migration
   (fixed).** `createClone` set `Domainname` on both the clone and proxy
   containers, to the clone name and the clone name plus `-proxy`. Those are 74
   and 80 bytes, and `setdomainname(2)` caps a domain name at 64, so runc failed
@@ -286,10 +360,22 @@ which `CreateDataset` and `CloneDataset` both need.
   all. Both fields are removed; the containers are still addressable as
   `cloneName`, which is what the proxy's `TARGET_ADDRESS` uses and what docker's
   embedded DNS resolves.
-- **A failed clone creation leaves the dataset behind.** `createClone` makes the
-  ZFS clone first and the containers second, and the container error path does
-  not roll the clone back. That is how the clone used to verify the listing
-  above came to exist. Not changed here.
+- **A failed clone creation left the dataset behind (fixed).** `createClone`
+  makes the ZFS clone first and the containers second, and the container error
+  path did not roll the clone back. That is how the clone used to verify the
+  listing above came to exist. zdap discovers clones by listing the pool, so a
+  half-built one was indistinguishable from a real one to
+  `/resources/:resource/clones` and to the clone pool, and nothing ever
+  reclaimed it: that is how the pool accumulated datasets with no container,
+  and ports that looked taken.
+
+  `createClone` now sets a `done` flag immediately before its success return,
+  and a deferred `bases.DestroyClone` runs on every other path. It is a flag
+  rather than a check on the returned error because echo recovers panics in
+  handlers: a panic in there does not stop zdapd, it returns a 500, and the
+  dataset would have been left behind all the same. A rollback that itself
+  fails is joined onto the original error, so the name that needs cleaning up
+  by hand reaches the caller rather than only stdout.
 - **Clone expiry was an hour late (fixed, by making zdap timestamps UTC).**
   `clonepool` wrote `zdap:expires_at` with `time.Now().Format(TimestampFormat)`,
   which is local wall clock, and the listing read it back with `time.Parse`,
@@ -332,6 +418,8 @@ which `CreateDataset` and `CloneDataset` both need.
   instant that actually happened, rather than local wall clock relabelled as
   UTC. The `:createdAt` round trip holds either way, because the dataset name
   and the property are written from the same value.
-- **zdapd exits 0 even when a command fails.** `main` prints `[Error] %v` and
-  returns. `check-zfs` exits non-zero itself so it can be scripted; the other
-  commands were left as they were.
+- **zdapd exited 0 even when a command failed (fixed).** `main` printed
+  `[Error] %v` and returned. zdapd's commands are driven by cron and by
+  scripts, and they had no way to tell a failed base creation from a successful
+  one. `main` now prints to stderr and exits 1 for every command, which is what
+  the zdap client already did.
