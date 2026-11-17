@@ -5,6 +5,7 @@ go 1.27.1
 require (
 	github.com/c2h5oh/datasize v0.0.0-20220606134207-859f65c6625b
 	github.com/caarlos0/env/v11 v11.4.1
+	github.com/fsnotify/fsnotify v1.6.0
 	github.com/kraudcloud/go-libzfs/v2 v2.22.1
 	github.com/labstack/echo/v5 v5.4.1
 	github.com/labstack/gommon v0.5.0

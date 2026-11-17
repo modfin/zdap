@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func resourceWithBinds(binds ...string) *internal.Resource {
-	return &internal.Resource{
+func resourceWithBinds(binds ...string) internal.Resource {
+	return internal.Resource{
 		Name:          "test",
 		Docker:        internal.Docker{Volume: "/var/lib/postgresql/data"},
 		RestoreParams: internal.ContainerParams{Binds: binds},

@@ -24,7 +24,9 @@ import (
 )
 
 type CloneContext struct {
-	Resource  *internal.Resource
+	// Resource is held by value: a clone keeps the configuration it started
+	// with, so a resource file reloaded mid-clone cannot change it.
+	Resource  internal.Resource
 	Docker    *client.Client
 	Z         *zfs.ZFS
 	ConfigDir string
@@ -44,7 +46,7 @@ func (c *CloneContext) CloneResourcePooled(lst *zfs.Listing, owner string, resou
 func (c *CloneContext) CloneResourceHandlePooling(lst *zfs.Listing, owner string, resourceName string, at time.Time, pooled bool) (*zdap.PublicClone, error) {
 
 	r := c.Resource
-	if r == nil {
+	if r.Name == "" {
 		return nil, fmt.Errorf("could not find resource %s", resourceName)
 	}
 
@@ -97,7 +99,7 @@ func (c *CloneContext) GetLatestResourceSnap(lst *zfs.Listing, resourceName stri
 // of it and the proxy in front of that. It is all-or-nothing. If any step
 // after the dataset exists fails, the dataset and whatever containers were
 // created are torn down again before returning.
-func createClone(lst *zfs.Listing, owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, clonePooled bool) (clone *zdap.PublicClone, err error) {
+func createClone(lst *zfs.Listing, owner string, snap string, r internal.Resource, docker *client.Client, z *zfs.ZFS, clonePooled bool) (clone *zdap.PublicClone, err error) {
 	net, err := bases.EnsureNetwork(docker)
 	if err != nil {
 		return nil, err

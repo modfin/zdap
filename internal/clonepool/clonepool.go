@@ -20,22 +20,70 @@ type ClonePool struct {
 	ClonesAvailable int
 	claimLock       sync.Mutex
 	gc              chan struct{}
+
+	// done is closed by Stop. A pool is never reconfigured: when the resource
+	// file changes, the pool is stopped and a new one is started in its place.
+	done     chan struct{}
+	stopOnce sync.Once
+	loop     sync.WaitGroup
 }
 
 func NewClonePool(resource internal.Resource, cloneContext *cloning.CloneContext) *ClonePool {
-	return &ClonePool{resource: resource, cloneContext: cloneContext, gc: make(chan struct{}, 1)}
+	return &ClonePool{
+		resource:     resource,
+		cloneContext: cloneContext,
+		gc:           make(chan struct{}, 1),
+		done:         make(chan struct{}),
+	}
+}
+
+// Resource is the configuration this pool was started with, used to decide
+// whether a reloaded resource file means this pool has to be replaced.
+func (c *ClonePool) Resource() internal.Resource {
+	return c.resource
 }
 
 func (c *ClonePool) Start() {
+	c.loop.Add(1)
 	go func() {
+		defer c.loop.Done()
 		for {
 			select {
+			case <-c.done:
+				return
 			case <-time.After(time.Hour):
 			case <-c.gc:
+			}
+			// Stop may have arrived together with a trigger; select picks a
+			// ready case at random, so check again before doing more work.
+			select {
+			case <-c.done:
+				return
+			default:
 			}
 			c.action()
 		}
 	}()
+}
+
+// Stop ends the pool's loop. It signals and returns rather than waiting, so a
+// reload is not held behind a clone that is halfway through being created: the
+// loop exits after the action it is running. That leaves a window of at most
+// one action in which the old pool is still working from the old
+// configuration, which is why a replacement pool is only started for a
+// resource whose configuration actually changed.
+//
+// Safe to call more than once.
+func (c *ClonePool) Stop() {
+	c.stopOnce.Do(func() { close(c.done) })
+}
+
+// StopAndWait stops the pool and waits for its loop to leave, including an
+// action already in flight. For shutdown, where the wait is worth the
+// certainty that nothing is still creating clones.
+func (c *ClonePool) StopAndWait() {
+	c.Stop()
+	c.loop.Wait()
 }
 
 func (c *ClonePool) TriggerGC() {

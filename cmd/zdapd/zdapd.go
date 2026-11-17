@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
@@ -67,6 +69,20 @@ func main() {
 				Name:  "serve",
 				Usage: "starts http daemon for clients to interact with",
 				Action: func(c *cli.Context) error {
+					ctx, cancel := context.WithCancel(c.Context)
+					defer cancel()
+
+					// Resource files are picked up as they change, and SIGHUP
+					// asks for the same thing explicitly -- which is what you
+					// want where the watch cannot see the change, such as
+					// config on a bind or network mount.
+					go func() {
+						if err := app.WatchConfigDir(ctx); err != nil {
+							fmt.Println("[CORE] Not watching for resource changes:", err)
+						}
+					}()
+					go reloadOnSIGHUP(ctx, app)
+
 					return api.Start(config.Get(), app, z)
 				},
 			},
@@ -558,4 +574,32 @@ func fmtTimePtr(t *time.Time) string {
 		return "none"
 	}
 	return fmtTime(*t)
+}
+
+// reloadOnSIGHUP re-reads the resource files on SIGHUP, the conventional way
+// to ask a daemon to pick up its configuration without restarting. Work that
+// is already running is unaffected: a restore or a clone keeps the resource it
+// started with.
+func reloadOnSIGHUP(ctx context.Context, app *core.Core) {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGHUP)
+	defer signal.Stop(sig)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-sig:
+			fmt.Println("[CORE] SIGHUP, reloading resources")
+			changed, err := app.Reload()
+			switch {
+			case err != nil:
+				fmt.Println("[CORE] Error:", err)
+			case changed:
+				fmt.Println("[CORE] Reloaded resources")
+			default:
+				fmt.Println("[CORE] Resources unchanged")
+			}
+		}
+	}
 }

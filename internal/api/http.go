@@ -250,7 +250,11 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		fmt.Println(" -", r)
 	}
 	fmt.Println("== Starting Cron ==")
-	fmt.Println(app.Start())
+	if err := app.Start(); err != nil {
+		// Previously printed and dropped, so a bad cron expression left the
+		// API serving with no schedules and nothing but a line in the log.
+		return fmt.Errorf("could not start cron, %w", err)
+	}
 
 	fmt.Println("== Starting API Server ==")
 	return e.Start(fmt.Sprintf(":%d", cfg.APIPort))
