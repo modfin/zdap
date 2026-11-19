@@ -23,7 +23,15 @@ import (
 
 var baseCreationMutex sync.Mutex
 
-func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, snapCompletedCallback func()) error {
+// CreateBaseAndSnap restores a resource into a new base dataset and snapshots
+// it.
+//
+// r is taken by value on purpose: this runs for as long as the restore takes,
+// and a resource file may be reloaded while it does. The job keeps the
+// configuration it started with, so a reload can neither change the image,
+// the scripts nor the ZFS properties underneath a restore that is already
+// running.
+func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.Client, z *zfs.ZFS, snapCompletedCallback func()) error {
 	baseCreationMutex.Lock()
 	defer baseCreationMutex.Unlock()
 
@@ -141,7 +149,7 @@ func CreateBaseAndSnap(resourcePath string, r *internal.Resource, docker *client
 
 // restoreMounts parses restore_params.binds ("<host-path>:<container-path>[:ro|rw]") into bind mounts,
 // creating any host directories that don't exist yet
-func restoreMounts(r *internal.Resource) ([]mount.Mount, error) {
+func restoreMounts(r internal.Resource) ([]mount.Mount, error) {
 	var mounts []mount.Mount
 	for _, b := range r.RestoreParams.Binds {
 		parts := strings.Split(b, ":")

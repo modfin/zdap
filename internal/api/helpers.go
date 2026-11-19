@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -17,11 +18,11 @@ import (
 
 var errProxyNotFound = errors.New("could not find proxy container")
 
-func getStatus(dss *zfs.Dataset, app *core.Core) (zdap.ServerStatus, error) {
-	return app.ServerStatus(dss)
+func getStatus(ctx context.Context, app *core.Core) (zdap.ServerStatus, error) {
+	return app.ServerStatus(ctx)
 }
 
-func getResources(dss *zfs.Dataset, owner string, app *core.Core) ([]servermodel.ServerInternalResource, error) {
+func getResources(lst *zfs.Listing, owner string, app *core.Core) ([]servermodel.ServerInternalResource, error) {
 	var err error
 	var resources []servermodel.ServerInternalResource
 	for _, r := range app.GetResources() {
@@ -32,7 +33,7 @@ func getResources(dss *zfs.Dataset, owner string, app *core.Core) ([]servermodel
 				ClonePool: r.ClonePool,
 			},
 		}
-		res.Snaps, err = getSnaps(dss, owner, r.Name, app)
+		res.Snaps, err = getSnaps(lst, owner, r.Name, app)
 		if err != nil {
 			return nil, err
 		}
@@ -43,7 +44,7 @@ func getResources(dss *zfs.Dataset, owner string, app *core.Core) ([]servermodel
 	})
 	return resources, nil
 }
-func getResource(dss *zfs.Dataset, owner string, resource string, app *core.Core) (*servermodel.ServerInternalResource, error) {
+func getResource(lst *zfs.Listing, owner string, resource string, app *core.Core) (*servermodel.ServerInternalResource, error) {
 	var err error
 	for _, r := range app.GetResources() {
 		if r.Name != resource {
@@ -55,7 +56,7 @@ func getResource(dss *zfs.Dataset, owner string, resource string, app *core.Core
 				Alias: r.Alias,
 			},
 		}
-		res.Snaps, err = getSnaps(dss, owner, r.Name, app)
+		res.Snaps, err = getSnaps(lst, owner, r.Name, app)
 		if err != nil {
 			return nil, err
 		}
@@ -63,8 +64,8 @@ func getResource(dss *zfs.Dataset, owner string, resource string, app *core.Core
 	}
 	return nil, fmt.Errorf("could not find resource")
 }
-func getSnap(dss *zfs.Dataset, owner string, createdAt time.Time, resource string, app *core.Core) (*servermodel.ServerInternalSnapshot, error) {
-	ss, err := app.GetResourceSnaps(dss, resource)
+func getSnap(lst *zfs.Listing, owner string, createdAt time.Time, resource string, app *core.Core) (*servermodel.ServerInternalSnapshot, error) {
+	ss, err := app.GetResourceSnaps(lst, resource)
 	if err != nil {
 		return nil, err
 	}
@@ -72,19 +73,27 @@ func getSnap(dss *zfs.Dataset, owner string, createdAt time.Time, resource strin
 		if !t.CreatedAt.Equal(createdAt) {
 			continue
 		}
-		t.Clones, err = getClones(dss, owner, t.CreatedAt, resource, app)
+		t.Clones, err = getClones(lst, owner, t.CreatedAt, resource, app)
 		return &t, err
 	}
 	return nil, fmt.Errorf("could not find snap %s@%s", resource, createdAt.Format(utils.TimestampFormat))
 }
-func getSnaps(dss *zfs.Dataset, owner string, resource string, app *core.Core) ([]servermodel.ServerInternalSnapshot, error) {
-	ss, err := app.GetResourceSnaps(dss, resource)
+func getSnaps(lst *zfs.Listing, owner string, resource string, app *core.Core) ([]servermodel.ServerInternalSnapshot, error) {
+	ss, err := app.GetResourceSnaps(lst, resource)
 	if err != nil {
 		return nil, err
 	}
+
+	// Grouped once for the whole resource. This used to be a call per snapshot,
+	// each of which rebuilt the map from scratch off a full walk of the pool.
+	cc, err := app.GetResourceClones(lst, resource)
+	if err != nil {
+		return nil, err
+	}
+
 	var snaps []servermodel.ServerInternalSnapshot
 	for _, t := range ss {
-		t.Clones, err = getClones(dss, owner, t.CreatedAt, resource, app)
+		t.Clones, err = clonesOf(cc[t.CreatedAt], owner, app)
 		if err != nil {
 			return nil, err
 		}
@@ -96,8 +105,8 @@ func getSnaps(dss *zfs.Dataset, owner string, resource string, app *core.Core) (
 	return snaps, nil
 }
 
-func getClone(dss *zfs.Dataset, owner string, clone time.Time, snap time.Time, resource string, app *core.Core) (*servermodel.ServerInternalClone, error) {
-	cc, err := app.GetResourceClones(dss, resource)
+func getClone(lst *zfs.Listing, owner string, clone time.Time, snap time.Time, resource string, app *core.Core) (*servermodel.ServerInternalClone, error) {
+	cc, err := app.GetResourceClones(lst, resource)
 	if err != nil {
 		return nil, err
 	}
@@ -113,13 +122,20 @@ func getClone(dss *zfs.Dataset, owner string, clone time.Time, snap time.Time, r
 	return nil, fmt.Errorf("could not find clone %s@%s -> %s", resource, snap.Format(utils.TimestampFormat), clone.Format(utils.TimestampFormat))
 }
 
-func getClones(dss *zfs.Dataset, owner string, snap time.Time, resource string, app *core.Core) ([]servermodel.ServerInternalClone, error) {
-	var clones []servermodel.ServerInternalClone
-	cc, err := app.GetResourceClones(dss, resource)
+func getClones(lst *zfs.Listing, owner string, snap time.Time, resource string, app *core.Core) ([]servermodel.ServerInternalClone, error) {
+	cc, err := app.GetResourceClones(lst, resource)
 	if err != nil {
 		return nil, err
 	}
-	for _, c := range cc[snap] {
+	return clonesOf(cc[snap], owner, app)
+}
+
+// clonesOf narrows one snapshot's clones to those the caller owns, sorts them
+// and fills in the port each one's proxy container is listening on.
+func clonesOf(snapClones []servermodel.ServerInternalClone, owner string, app *core.Core) ([]servermodel.ServerInternalClone, error) {
+	var clones []servermodel.ServerInternalClone
+	var err error
+	for _, c := range snapClones {
 		if strings.EqualFold(c.Owner, owner) {
 			clones = append(clones, c)
 		}

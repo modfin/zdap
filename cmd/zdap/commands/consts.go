@@ -1,7 +1,6 @@
 package commands
 
-
-const BashCompletion =`
+const BashCompletion = `
 ## PART 1: Write the following to eg. /etc/bash_completion.d/zdap
 
 #! /bin/bash
@@ -26,7 +25,7 @@ _cli_bash_autocomplete() {
 complete -o bashdefault -o default -o nospace -F _cli_bash_autocomplete $PROG
 unset PROG`
 
-const ZshCompletion =`
+const ZshCompletion = `
 ## PART 1: Write the following to eg. ~/.zdap/zsh_autocomplete
 
 #compdef $PROG
