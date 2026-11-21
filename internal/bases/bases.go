@@ -21,7 +21,47 @@ import (
 	"github.com/modfin/zdap/internal/zfs"
 )
 
+// baseCreationMutex serializes the part of a base build that touches the pool:
+// dataset creation, the restore itself and the snapshot. Only one base is ever
+// built at a time.
 var baseCreationMutex sync.Mutex
+
+// retrievalMutex serializes retrieval scripts against each other. Retrieval
+// deliberately does not run under baseCreationMutex: a download touches neither
+// the pool's datasets nor docker, and holding the global lock for its whole
+// duration left the pool idle for minutes on every job. Downloads still go one
+// at a time, so a batch of crons firing together cannot stampede the network or
+// the staging area they all write into.
+var retrievalMutex sync.Mutex
+
+// prefetchDepth bounds how far retrieval may run ahead of restore. Retrieval is
+// far quicker than a restore, so without a bound every resource in a batch would
+// pull its dump to disk while the first one was still restoring. Two slots give
+// exactly one job of lookahead: one restoring, one retrieving behind it.
+const prefetchDepth = 2
+
+var prefetchSlots = make(chan struct{}, prefetchDepth)
+
+// runScript is a package variable so that tests can stand in for the real
+// retrieval and creation scripts.
+var runScript = func(script string, args ...string) (string, error) {
+	cmd := exec.Command(script, args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	return out.String(), err
+}
+
+// retrieve runs the resource's retrieval script, serialized against other
+// retrievals but not against a restore that is already running.
+func retrieve(resourcePath string, r internal.Resource) (string, error) {
+	retrievalMutex.Lock()
+	defer retrievalMutex.Unlock()
+
+	fmt.Println("Retrieving data")
+	return runScript(filepath.Join(resourcePath, r.Retrieval))
+}
 
 // CreateBaseAndSnap restores a resource into a new base dataset and snapshots
 // it.
@@ -32,24 +72,30 @@ var baseCreationMutex sync.Mutex
 // the scripts nor the ZFS properties underneath a restore that is already
 // running.
 func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.Client, z *zfs.ZFS, snapCompletedCallback func()) error {
-	baseCreationMutex.Lock()
-	defer baseCreationMutex.Unlock()
-
-	runScript := func(script string, args ...string) (string, error) {
-		cmd := exec.Command(script, args...)
-		var out bytes.Buffer
-		cmd.Stdout = &out
-		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		return out.String(), err
-	}
-
-	// Resolved before the dataset is created, so an invalid bind doesn't leave an orphaned dataset behind
+	// Resolved first of all: an invalid bind should fail the job before it
+	// downloads anything or creates a dataset, and a retrieval script may write
+	// straight into a bind source directory that this creates.
 	extraMounts, err := restoreMounts(r)
 	if err != nil {
 		return err
 	}
 
+	// Held for the whole job, so the number of resources that have downloaded a
+	// dump but not yet restored it stays bounded.
+	prefetchSlots <- struct{}{}
+	defer func() { <-prefetchSlots }()
+
+	file, err := retrieve(resourcePath, r)
+	if err != nil {
+		return err
+	}
+
+	baseCreationMutex.Lock()
+	defer baseCreationMutex.Unlock()
+
+	// Timed from here rather than from the top of the job, so that a base
+	// dataset's creation timestamp marks the start of the restore and not the
+	// start of a download that may have finished long before the lock came free.
 	t := time.Now()
 	name := z.NewDatasetBaseName(r.Name, t)
 
@@ -112,12 +158,6 @@ func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.
 		time.Sleep(time.Second)
 	}
 	fmt.Println("Container", name, "is healthy")
-
-	fmt.Println("Retrieving data")
-	file, err := runScript(filepath.Join(resourcePath, r.Retrieval))
-	if err != nil {
-		return err
-	}
 
 	fmt.Print("Creating database...")
 	defer fmt.Println(" done")
