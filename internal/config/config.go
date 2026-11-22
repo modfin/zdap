@@ -14,6 +14,14 @@ type Config struct {
 	ConfigDir      string `env:"CONFIG_DIR"`
 
 	APIPort int `env:"API_PORT" envDefault:"43210"`
+
+	// Replication (node-to-node zfs send/recv). Deliberately separate from the
+	// developer API above: that one is unauthenticated and every developer
+	// reaches it, this one is mTLS between nodes only.
+	ReplicationPort int    `env:"REPLICATION_PORT" envDefault:"43220"`
+	TLSCa           string `env:"ZDAP_TLS_CA"`
+	TLSCert         string `env:"ZDAP_TLS_CERT"`
+	TLSKey          string `env:"ZDAP_TLS_KEY"`
 }
 
 var (

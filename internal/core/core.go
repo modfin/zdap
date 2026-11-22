@@ -52,6 +52,11 @@ type Core struct {
 
 	poolsMu    sync.RWMutex
 	clonePools map[string]*clonepool.ClonePool
+
+	// replicate pushes a finished base to the peers a resource lists in
+	// replicate_to. Nil when replication is not configured, which is the
+	// standalone case and the default.
+	replicate func(ctx context.Context, dataset string, targets []string) error
 }
 
 // resourceSet is one loaded generation of the resource files.
@@ -170,7 +175,7 @@ func (c *Core) applyLocked() error {
 		r := r
 		id, err := newCron.AddFunc(r.Cron, func() {
 			fmt.Println("[CRON] Starting cron job to create", r.Name, "base resource")
-			err := bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z, func() {
+			dataset, err := bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z, func() {
 				// Looked up when the job runs rather than captured here: a
 				// reload may have replaced the pool in the meantime.
 				if pool := c.poolFor(r.Name); pool != nil {
@@ -179,7 +184,9 @@ func (c *Core) applyLocked() error {
 			})
 			if err != nil {
 				fmt.Println("[CRON] Error: could not run cronjob to create base,", err)
+				return
 			}
+			c.replicateBase(r, dataset)
 		})
 		if err != nil {
 			return fmt.Errorf("could not create cron for '%s', %w", r.Cron, err)
@@ -450,12 +457,48 @@ func (c *Core) GetResourceSnaps(lst *zfs.Listing, resourceName string) ([]server
 	return rsnap, nil
 }
 
+// SetReplicator installs the function used to push finished bases to peers.
+// Wiring it from the outside keeps core free of any dependency on the
+// replication transport, and leaves it nil for a standalone node.
+func (c *Core) SetReplicator(fn func(ctx context.Context, dataset string, targets []string) error) {
+	c.replicate = fn
+}
+
+// replicateBase pushes a freshly built base to the resource's peers.
+//
+// Failure here is logged but not returned: the base exists and is usable
+// locally, and a peer being unreachable should not turn a successful restore
+// into a failed one. The receiving node reporting a stale base is the signal
+// that matters, which is why base age belongs in the health check.
+func (c *Core) replicateBase(r internal.Resource, dataset string) {
+	if c.replicate == nil || len(r.ReplicateTo) == 0 || dataset == "" {
+		return
+	}
+	fmt.Printf("Replicating %s to %v\n", dataset, r.ReplicateTo)
+	if err := c.replicate(context.Background(), dataset, r.ReplicateTo); err != nil {
+		fmt.Printf("Error: could not replicate %s: %v\n", dataset, err)
+	}
+}
+
 // getResource copies one resource out of the set in service. The copy is what
 // makes a job independent of later reloads, so hold on to it for the whole of
 // a piece of work rather than looking the name up again part way through.
 func (c *Core) getResource(resourceName string) (internal.Resource, bool) {
 	r, ok := c.set().byName[resourceName]
 	return r, ok
+}
+
+// GetResource returns a copy of a resource's configuration.
+func (c *Core) GetResource(resourceName string) (internal.Resource, bool) {
+	return c.getResource(resourceName)
+}
+
+// HasResource reports whether this node is configured for a resource. The
+// replication listener uses it to decide what a peer may push: a peer
+// certificate proves who is sending, not what.
+func (c *Core) HasResource(resourceName string) bool {
+	_, ok := c.getResource(resourceName)
+	return ok
 }
 
 func (c *Core) CreateBaseAndSnap(ctx context.Context, resourceName string, useExistingBase bool) error {
@@ -484,11 +527,16 @@ func (c *Core) CreateBaseAndSnap(ctx context.Context, resourceName string, useEx
 		fmt.Printf("snapping %s at %s\n", latestBase, zfs.FormatTimestamp(t))
 		return c.z.SnapDataset(latestBase, r.Name, t)
 	}
-	return bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z, func() {
+	dataset, err := bases.CreateBaseAndSnap(c.configDir, r, c.docker, c.z, func() {
 		if pool := c.poolFor(resourceName); pool != nil {
 			pool.TriggerGC()
 		}
 	})
+	if err != nil {
+		return err
+	}
+	c.replicateBase(r, dataset)
+	return nil
 }
 
 func (c *Core) CloneResource(lst *zfs.Listing, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {

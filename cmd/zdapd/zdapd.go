@@ -16,6 +16,7 @@ import (
 	"github.com/modfin/zdap/internal/api"
 	"github.com/modfin/zdap/internal/config"
 	"github.com/modfin/zdap/internal/core"
+	"github.com/modfin/zdap/internal/replication"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 	"github.com/urfave/cli/v2"
@@ -27,6 +28,7 @@ func main() {
 	var app *core.Core
 	var docker *client.Client
 	var z *zfs.ZFS
+	var tlsMaterial *config.TLSMaterial
 
 	load := func(c *cli.Context) error {
 		cfg := config.FromCli(c)
@@ -40,6 +42,27 @@ func main() {
 
 		app, err = core.NewCore(configDir, cfg.NetworkAddress, cfg.APIPort, docker, z)
 		if err != nil {
+			return err
+		}
+
+		// Replication is all-or-nothing: none of the TLS paths set means
+		// standalone, all set means replication, anything in between is fatal.
+		// A daemon that starts looking healthy with replication silently off
+		// would let bases go stale on every receiving node with no signal.
+		tlsMaterial, err = cfg.LoadTLS()
+		if err != nil {
+			return err
+		}
+		if tlsMaterial != nil {
+			cl := replication.NewClient(tlsMaterial, cfg.ReplicationPort)
+			pool := z.Pool()
+			app.SetReplicator(func(ctx context.Context, dataset string, targets []string) error {
+				return replication.PushAll(ctx, cl, pool, dataset, targets)
+			})
+		}
+		// Wiring it here rather than in `serve` means a base built from the CLI
+		// replicates too, which is why the TLS paths belong in zdapd_env.
+		if err := checkReplicationConfig(app, tlsMaterial); err != nil {
 			return err
 		}
 		return nil
@@ -82,6 +105,14 @@ func main() {
 						}
 					}()
 					go reloadOnSIGHUP(ctx, app)
+
+					if tlsMaterial != nil {
+						go func() {
+							if err := api.StartReplication(ctx, config.Get(), app, z, tlsMaterial); err != nil {
+								fmt.Println("[REPLICATION] Error:", err)
+							}
+						}()
+					}
 
 					return api.Start(config.Get(), app, z)
 				},
@@ -602,4 +633,25 @@ func reloadOnSIGHUP(ctx context.Context, app *core.Core) {
 			}
 		}
 	}
+}
+
+// checkReplicationConfig refuses a configuration that asks for replication it
+// cannot perform. A resource listing replicate_to on a node without TLS would
+// otherwise build its base and quietly keep it to itself.
+func checkReplicationConfig(app *core.Core, m *config.TLSMaterial) error {
+	if m != nil {
+		return nil
+	}
+	var wanting []string
+	for _, name := range app.GetResourcesNames() {
+		r, ok := app.GetResource(name)
+		if ok && len(r.ReplicateTo) > 0 {
+			wanting = append(wanting, name)
+		}
+	}
+	if len(wanting) > 0 {
+		return fmt.Errorf("resources %v set replicate_to but replication TLS is not configured "+
+			"(set ZDAP_TLS_CA, ZDAP_TLS_CERT and ZDAP_TLS_KEY)", wanting)
+	}
+	return nil
 }

@@ -189,7 +189,8 @@ func Test_CreateBaseAndSnap_failedRetrievalReleasesItsSlot(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := 0; i < prefetchDepth+3; i++ {
-			assert.Error(t, CreateBaseAndSnap(t.TempDir(), r, nil, nil, nil))
+			_, err := CreateBaseAndSnap(t.TempDir(), r, nil, nil, nil)
+			assert.Error(t, err)
 		}
 	}()
 
@@ -215,7 +216,8 @@ func Test_CreateBaseAndSnap_prefetchIsBounded(t *testing.T) {
 
 	failed := make(chan error, 1)
 	go func() {
-		failed <- CreateBaseAndSnap(t.TempDir(), internal.Resource{Name: "test", Retrieval: "./r.sh"}, nil, nil, nil)
+		_, err := CreateBaseAndSnap(t.TempDir(), internal.Resource{Name: "test", Retrieval: "./r.sh"}, nil, nil, nil)
+		failed <- err
 	}()
 
 	select {
@@ -259,7 +261,8 @@ func Test_CreateBaseAndSnap_retrievesWithoutWaitingForTheGlobalLock(t *testing.T
 
 	failed := make(chan error, 1)
 	go func() {
-		failed <- CreateBaseAndSnap(t.TempDir(), internal.Resource{Name: "test", Retrieval: "./r.sh"}, nil, nil, nil)
+		_, err := CreateBaseAndSnap(t.TempDir(), internal.Resource{Name: "test", Retrieval: "./r.sh"}, nil, nil, nil)
+		failed <- err
 	}()
 
 	select {

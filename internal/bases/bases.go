@@ -64,20 +64,20 @@ func retrieve(resourcePath string, r internal.Resource) (string, error) {
 }
 
 // CreateBaseAndSnap restores a resource into a new base dataset and snapshots
-// it.
+// it, returning the name of the base it created so the caller can replicate it.
 //
 // r is taken by value on purpose: this runs for as long as the restore takes,
 // and a resource file may be reloaded while it does. The job keeps the
 // configuration it started with, so a reload can neither change the image,
 // the scripts nor the ZFS properties underneath a restore that is already
 // running.
-func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.Client, z *zfs.ZFS, snapCompletedCallback func()) error {
+func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.Client, z *zfs.ZFS, snapCompletedCallback func()) (string, error) {
 	// Resolved first of all: an invalid bind should fail the job before it
 	// downloads anything or creates a dataset, and a retrieval script may write
 	// straight into a bind source directory that this creates.
 	extraMounts, err := restoreMounts(r)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Held for the whole job, so the number of resources that have downloaded a
@@ -87,7 +87,7 @@ func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.
 
 	file, err := retrieve(resourcePath, r)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	baseCreationMutex.Lock()
@@ -101,7 +101,7 @@ func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.
 
 	path, err := z.CreateDataset(name, r.Name, t, r.BaseZfsProperties())
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	ctx := context.Background()
@@ -137,20 +137,20 @@ func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.
 		Name: name,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Ignore ContainerStartResult since it currently is an empty struct
 	_, err = docker.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{})
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	fmt.Println("Waiting for container", name, "to become healthy")
 	for {
 		t, err := docker.ContainerInspect(context.Background(), resp.ID, client.ContainerInspectOptions{})
 		if err != nil {
-			return err
+			return "", err
 		}
 		if t.Container.State != nil && t.Container.State.Health != nil && t.Container.State.Health.Status == container.Healthy {
 			break
@@ -163,28 +163,28 @@ func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.
 	defer fmt.Println(" done")
 	_, err = runScript(filepath.Join(resourcePath, r.Creation), file, name)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	d := 60 // seconds
 	err = stopContainer(docker, resp.ID, d)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	err = removeContainer(docker, resp.ID)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	err = z.SnapDataset(name, r.Name, t)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if snapCompletedCallback != nil {
 		snapCompletedCallback()
 	}
-	return err
+	return name, err
 }
 
 // restoreMounts parses restore_params.binds ("<host-path>:<container-path>[:ro|rw]") into bind mounts,
