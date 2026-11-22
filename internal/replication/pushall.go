@@ -10,7 +10,7 @@ import (
 // Pusher sends one base to one peer. The interface exists so that PushAll's
 // concurrency can be tested without a network or a pool.
 type Pusher interface {
-	Push(ctx context.Context, peer, pool, dataset string) error
+	Push(ctx context.Context, peer, pool, dataset string, report func(Progress)) error
 }
 
 // PushAll sends a base to every target at once.
@@ -27,7 +27,7 @@ type Pusher interface {
 // Every target is attempted even if an earlier one fails: one unreachable peer
 // should not stop the others. Errors come back joined, in target order rather
 // than completion order so the message does not vary run to run.
-func PushAll(ctx context.Context, p Pusher, pool, dataset string, targets []string) error {
+func PushAll(ctx context.Context, p Pusher, pool, dataset string, targets []string, report func(Progress)) error {
 	if len(targets) == 0 {
 		return nil
 	}
@@ -36,7 +36,7 @@ func PushAll(ctx context.Context, p Pusher, pool, dataset string, targets []stri
 	var wg sync.WaitGroup
 	for i, target := range targets {
 		wg.Go(func() {
-			if err := p.Push(ctx, target, pool, dataset); err != nil {
+			if err := p.Push(ctx, target, pool, dataset, report); err != nil {
 				errs[i] = fmt.Errorf("replicating %s to %s: %w", dataset, target, err)
 			}
 		})

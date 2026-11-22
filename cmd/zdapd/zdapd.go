@@ -57,7 +57,7 @@ func main() {
 			cl := replication.NewClient(tlsMaterial, cfg.ReplicationPort)
 			pool := z.Pool()
 			app.SetReplicator(func(ctx context.Context, dataset string, targets []string) error {
-				return replication.PushAll(ctx, cl, pool, dataset, targets)
+				return replication.PushAll(ctx, cl, pool, dataset, targets, nil)
 			})
 		}
 		// Wiring it here rather than in `serve` means a base built from the CLI

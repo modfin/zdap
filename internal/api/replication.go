@@ -57,7 +57,7 @@ func StartReplication(ctx context.Context, cfg *config.Config, app *core.Core, z
 		if !app.HasResource(resource) {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "no such resource"})
 		}
-		id := jobs.start(func(ctx context.Context) error {
+		id := jobs.start(func(ctx context.Context, _ func(replication.Progress)) error {
 			return app.CreateBaseAndSnap(ctx, resource, false)
 		})
 		return c.JSON(http.StatusAccepted, map[string]string{"job": id})
@@ -91,8 +91,8 @@ func StartReplication(ctx context.Context, cfg *config.Config, app *core.Core, z
 			}
 			targets = r.ReplicateTo
 		}
-		id := jobs.start(func(ctx context.Context) error {
-			return replication.PushAll(ctx, client, z.Pool(), dataset, targets)
+		id := jobs.start(func(ctx context.Context, report func(replication.Progress)) error {
+			return replication.PushAll(ctx, client, z.Pool(), dataset, targets, report)
 		})
 		return c.JSON(http.StatusAccepted, map[string]string{"job": id, "dataset": dataset})
 	})
@@ -173,6 +173,10 @@ type job struct {
 	Started  time.Time  `json:"started"`
 	Finished *time.Time `json:"finished,omitempty"`
 	Error    string     `json:"error,omitempty"`
+
+	// Progress per peer, so a scheduler can tell a slow transfer from a stuck
+	// one rather than only seeing "running".
+	Progress map[string]replication.Progress `json:"progress,omitempty"`
 }
 
 type jobRegistry struct {
@@ -182,17 +186,23 @@ type jobRegistry struct {
 
 func newJobs() *jobRegistry { return &jobRegistry{jobs: map[string]*job{}} }
 
-func (r *jobRegistry) start(fn func(context.Context) error) string {
+func (r *jobRegistry) start(fn func(context.Context, func(replication.Progress)) error) string {
 	id := newJobID()
-	j := &job{ID: id, State: "running", Started: time.Now()}
+	j := &job{ID: id, State: "running", Started: time.Now(), Progress: map[string]replication.Progress{}}
 	r.mu.Lock()
 	r.jobs[id] = j
 	r.mu.Unlock()
 
+	report := func(p replication.Progress) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		j.Progress[p.Peer] = p
+	}
+
 	go func() {
 		// Deliberately not the request context: the work outlives the request
 		// that asked for it, and a poll-and-disconnect must not cancel a restore.
-		err := fn(context.Background())
+		err := fn(context.Background(), report)
 		now := time.Now()
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -213,7 +223,13 @@ func (r *jobRegistry) get(id string) (job, bool) {
 	if !ok {
 		return job{}, false
 	}
-	return *j, true
+	// Copy the map: the caller marshals it while the transfer keeps writing.
+	out := *j
+	out.Progress = make(map[string]replication.Progress, len(j.Progress))
+	for k, v := range j.Progress {
+		out.Progress[k] = v
+	}
+	return out, true
 }
 
 // newJobID uses crypto/rand rather than the package's math/rand helper: job ids

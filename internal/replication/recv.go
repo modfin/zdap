@@ -1,6 +1,7 @@
 package replication
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -67,7 +68,9 @@ func (r *Receiver) Recv(ctx context.Context, dataset string, body io.Reader) err
 	}
 
 	cmd := exec.CommandContext(ctx, "zfs", "recv", "-s", target)
-	cmd.Stdin = body
+	// exec copies a non-*os.File stdin with its own 32 KB io.Copy; buffering
+	// here gives that the WriteTo path instead. See streamBuffer.
+	cmd.Stdin = bufio.NewReaderSize(body, streamBuffer)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

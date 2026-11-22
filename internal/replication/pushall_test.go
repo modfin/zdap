@@ -19,7 +19,7 @@ type fakePusher struct {
 	fail     map[string]error
 }
 
-func (f *fakePusher) Push(ctx context.Context, peer, pool, dataset string) error {
+func (f *fakePusher) Push(ctx context.Context, peer, pool, dataset string, report func(Progress)) error {
 	f.mu.Lock()
 	f.seen = append(f.seen, peer)
 	f.inFlight++
@@ -44,7 +44,7 @@ func Test_PushAll_runsTargetsConcurrently(t *testing.T) {
 	targets := []string{"a", "b", "c"}
 
 	start := time.Now()
-	assert.NoError(t, PushAll(context.Background(), f, "pool", "zdap-x-base-2026-01-01T00.00.00", targets))
+	assert.NoError(t, PushAll(context.Background(), f, "pool", "zdap-x-base-2026-01-01T00.00.00", targets, nil))
 	elapsed := time.Since(start)
 
 	assert.Equal(t, 3, f.peak, "all three sends should have been in flight at once")
@@ -58,8 +58,7 @@ func Test_PushAll_oneFailureDoesNotStopTheRest(t *testing.T) {
 	boom := errors.New("connection refused")
 	f := &fakePusher{fail: map[string]error{"b": boom}}
 
-	err := PushAll(context.Background(), f, "pool", "zdap-x-base-2026-01-01T00.00.00",
-		[]string{"a", "b", "c"})
+	err := PushAll(context.Background(), f, "pool", "zdap-x-base-2026-01-01T00.00.00", []string{"a", "b", "c"}, nil)
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, boom))
@@ -71,8 +70,7 @@ func Test_PushAll_reportsEveryFailure(t *testing.T) {
 	one, two := errors.New("one"), errors.New("two")
 	f := &fakePusher{fail: map[string]error{"a": one, "c": two}}
 
-	err := PushAll(context.Background(), f, "pool", "zdap-x-base-2026-01-01T00.00.00",
-		[]string{"a", "b", "c"})
+	err := PushAll(context.Background(), f, "pool", "zdap-x-base-2026-01-01T00.00.00", []string{"a", "b", "c"}, nil)
 
 	assert.True(t, errors.Is(err, one))
 	assert.True(t, errors.Is(err, two))
@@ -80,6 +78,6 @@ func Test_PushAll_reportsEveryFailure(t *testing.T) {
 
 func Test_PushAll_noTargets(t *testing.T) {
 	f := &fakePusher{}
-	assert.NoError(t, PushAll(context.Background(), f, "pool", "zdap-x", nil))
+	assert.NoError(t, PushAll(context.Background(), f, "pool", "zdap-x", nil, nil))
 	assert.Empty(t, f.seen)
 }
