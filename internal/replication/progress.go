@@ -18,20 +18,28 @@ import (
 // rather than to stderr. Since the stream passes through our own pipe anyway,
 // counting it here is both simpler and exact.
 type Progress struct {
-	Peer    string    `json:"peer"`
-	Dataset string    `json:"dataset"`
-	Sent    int64     `json:"sent"`
-	Total   int64     `json:"total,omitempty"`
+	Peer    string `json:"peer"`
+	Dataset string `json:"dataset"`
+	Sent    int64  `json:"sent"`
+	// Total is what `zfs send -P` estimated before the stream started, not a
+	// measured figure: the 117 GB trade base reported 127,167,190,064 and
+	// actually sent 127,882,641,408, 0.56% more. Named for what it is so a
+	// caller does not treat it as exact.
+	Total   int64     `json:"total_estimated,omitempty"`
 	Rate    int64     `json:"rate_bytes_per_sec"`
 	Updated time.Time `json:"updated"`
 }
 
-// Percent is -1 when the total is unknown.
+// Percent is -1 when the total is unknown, and never exceeds 100.
+//
+// Because Total is an estimate, a finished transfer can report slightly more
+// bytes than were predicted; a real run reached 100.5%. Clamping keeps the
+// field meaningful for anything that drives a progress bar or a timeout off it.
 func (p Progress) Percent() float64 {
 	if p.Total <= 0 {
 		return -1
 	}
-	return float64(p.Sent) / float64(p.Total) * 100
+	return min(float64(p.Sent)/float64(p.Total)*100, 100)
 }
 
 // countingReader counts bytes passing through.

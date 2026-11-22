@@ -97,6 +97,15 @@ func StartReplication(ctx context.Context, cfg *config.Config, app *core.Core, z
 		return c.JSON(http.StatusAccepted, map[string]string{"job": id, "dataset": dataset})
 	})
 
+	// Listing exists so a restarted caller can find work it no longer has ids
+	// for. Without it a scheduler that lost its state could not tell a transfer
+	// still running from one that never started, and would try again -- the
+	// in-flight guard would refuse the duplicate, but as an error rather than
+	// as "already in progress".
+	e.GET("/replication/jobs", func(c *echo.Context) error {
+		return c.JSON(http.StatusOK, jobs.list(c.QueryParam("state")))
+	})
+
 	e.GET("/replication/jobs/:id", func(c *echo.Context) error {
 		j, ok := jobs.get(c.Param("id"))
 		if !ok {
@@ -191,6 +200,7 @@ func (r *jobRegistry) start(fn func(context.Context, func(replication.Progress))
 	j := &job{ID: id, State: "running", Started: time.Now(), Progress: map[string]replication.Progress{}}
 	r.mu.Lock()
 	r.jobs[id] = j
+	r.prune()
 	r.mu.Unlock()
 
 	report := func(p replication.Progress) {
@@ -216,6 +226,45 @@ func (r *jobRegistry) start(fn func(context.Context, func(replication.Progress))
 	return id
 }
 
+// keepFinished caps how many completed jobs are remembered. Nothing removed
+// them before, so a daemon replicating nightly accumulated them for its whole
+// lifetime. Running jobs are never pruned.
+const keepFinished = 100
+
+// prune drops the oldest finished jobs once there are more than keepFinished.
+// Caller holds the lock.
+func (r *jobRegistry) prune() {
+	var finished []*job
+	for _, j := range r.jobs {
+		if j.State != "running" {
+			finished = append(finished, j)
+		}
+	}
+	if len(finished) <= keepFinished {
+		return
+	}
+	sort.Slice(finished, func(i, k int) bool { return finished[i].Started.After(finished[k].Started) })
+	for _, j := range finished[keepFinished:] {
+		delete(r.jobs, j.ID)
+	}
+}
+
+// list returns jobs newest first, optionally filtered by state.
+func (r *jobRegistry) list(state string) []job {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]job, 0, len(r.jobs))
+	for _, j := range r.jobs {
+		if state != "" && j.State != state {
+			continue
+		}
+		out = append(out, j.copy())
+	}
+	sort.Slice(out, func(i, k int) bool { return out[i].Started.After(out[k].Started) })
+	return out
+}
+
 func (r *jobRegistry) get(id string) (job, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -223,13 +272,18 @@ func (r *jobRegistry) get(id string) (job, bool) {
 	if !ok {
 		return job{}, false
 	}
-	// Copy the map: the caller marshals it while the transfer keeps writing.
+	return j.copy(), true
+}
+
+// copy detaches a job from the registry. The Progress map is rebuilt because
+// the caller marshals it while the transfer keeps writing to it.
+func (j *job) copy() job {
 	out := *j
 	out.Progress = make(map[string]replication.Progress, len(j.Progress))
 	for k, v := range j.Progress {
 		out.Progress[k] = v
 	}
-	return out, true
+	return out
 }
 
 // newJobID uses crypto/rand rather than the package's math/rand helper: job ids

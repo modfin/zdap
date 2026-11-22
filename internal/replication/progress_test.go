@@ -85,4 +85,9 @@ func Test_countingReader_safeToSampleWhileReading(t *testing.T) {
 func Test_Progress_Percent(t *testing.T) {
 	assert.InDelta(t, 50.0, Progress{Sent: 50, Total: 100}.Percent(), 0.001)
 	assert.Equal(t, -1.0, Progress{Sent: 50}.Percent(), "unknown total reports -1, not a divide by zero")
+
+	// Total is an estimate from `zfs send -P`; a real 117 GB run overshot it by
+	// 0.56% and reported 100.5%.
+	assert.Equal(t, 100.0, Progress{Sent: 127882641408, Total: 127167190064}.Percent(),
+		"an overshooting estimate must not report more than 100%")
 }
