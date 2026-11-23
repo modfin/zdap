@@ -13,12 +13,15 @@ import (
 //
 // The zdap:* properties are set as part of creating it rather than afterwards,
 // so the dataset is never briefly visible to a listing without the resource it
-// belongs to.
-func (z *ZFS) CreateDataset(name string, resource string, creation time.Time, zfsProps map[string]string) (string, error) {
-	return z.createDataset(context.Background(), name, resource, creation, zfsProps)
+// belongs to. rt is the container the restore runs in; it is recorded here
+// because the image is already decided, and so that a base never exists
+// without it -- clones of it read it back instead of trusting the resource
+// file, which may since have moved on to another image.
+func (z *ZFS) CreateDataset(name string, resource string, creation time.Time, rt Runtime, zfsProps map[string]string) (string, error) {
+	return z.createDataset(context.Background(), name, resource, creation, rt, zfsProps)
 }
 
-func (z *ZFS) createDataset(ctx context.Context, name string, resource string, creation time.Time, zfsProps map[string]string) (string, error) {
+func (z *ZFS) createDataset(ctx context.Context, name string, resource string, creation time.Time, rt Runtime, zfsProps map[string]string) (string, error) {
 	// A base that does not carry a name zdap recognises can never be listed,
 	// snapshotted or cloned, so there is no point creating one.
 	if !IsBaseName(name) {
@@ -30,10 +33,9 @@ func (z *ZFS) createDataset(ctx context.Context, name string, resource string, c
 
 	path := fmt.Sprintf("%s/%s", z.pool, name)
 
-	own := map[string]string{
-		PropResource: resource,
-		PropCreated:  FormatTimestamp(creation),
-	}
+	own := rt.props()
+	own[PropResource] = resource
+	own[PropCreated] = FormatTimestamp(creation)
 
 	argv := []string{"create"}
 	argv = append(argv, zdapProps(own, zfsProps)...)

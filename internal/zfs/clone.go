@@ -20,18 +20,19 @@ import (
 // materialising a handle for every dataset on the pool.
 
 // CloneDataset makes a writable clone of a snapshot and returns the clone's
-// pool-relative name and the path it is mounted on.
+// pool-relative name, the path it is mounted on, and the container the base
+// was restored in as far as the base records it.
 //
 // snapName is pool relative, as it appears in a Listing: "<base>@snap".
-func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool, zfsProps map[string]string) (string, string, error) {
+func (z *ZFS) CloneDataset(owner, snapName string, port int, clonePooled bool, zfsProps map[string]string) (string, string, Runtime, error) {
 	return z.cloneDataset(context.Background(), owner, snapName, port, clonePooled, zfsProps)
 }
 
-func (z *ZFS) cloneDataset(ctx context.Context, owner, snapName string, port int, clonePooled bool, zfsProps map[string]string) (string, string, error) {
+func (z *ZFS) cloneDataset(ctx context.Context, owner, snapName string, port int, clonePooled bool, zfsProps map[string]string) (string, string, Runtime, error) {
 	// Also establishes that the part before the @ is a base name, so the
 	// clone is named after something zdap created.
 	if !IsSnapName(snapName) {
-		return "", "", fmt.Errorf("%q is not a zdap snapshot name", snapName)
+		return "", "", Runtime{}, fmt.Errorf("%q is not a zdap snapshot name", snapName)
 	}
 	baseName, _, _ := strings.Cut(snapName, "@")
 
@@ -39,22 +40,26 @@ func (z *ZFS) cloneDataset(ctx context.Context, owner, snapName string, port int
 	defer z.writeUnlock()
 
 	// The clone's zdap:resource and zdap:snapped_at come from the dataset the
-	// snapshot was taken of, which is where CreateDataset wrote them.
-	origin := fmt.Sprintf("%s/%s", z.pool, baseName)
-	originProps, err := z.getProps(ctx, origin, PropResource, PropCreated)
+	// snapshot was taken of, which is where CreateDataset wrote them, and so
+	// does the container it has to run in. All four in one read.
+	originPath := fmt.Sprintf("%s/%s", z.pool, baseName)
+	originProps, err := z.getProps(ctx, originPath, PropResource, PropCreated, PropImage, PropVolume)
 	if err != nil {
-		return "", "", err
+		return "", "", Runtime{}, err
 	}
 
 	created := FormatTimestamp(time.Now())
 	cloneName := fmt.Sprintf("%s-clone-%s.%s", baseName, created, utils.RandStringRunes(3))
 
-	own := map[string]string{
-		PropOwner:       owner,
-		PropCreated:     created,
-		PropClonePooled: strconv.FormatBool(clonePooled),
-		PropPort:        strconv.Itoa(port),
-	}
+	origin := Runtime{Image: originProps[PropImage], Volume: originProps[PropVolume]}
+
+	// The clone carries its base's runtime too, so `zfs get` on a clone says
+	// what it runs without having to follow its origin.
+	own := origin.props()
+	own[PropOwner] = owner
+	own[PropCreated] = created
+	own[PropClonePooled] = strconv.FormatBool(clonePooled)
+	own[PropPort] = strconv.Itoa(port)
 	if v := originProps[PropResource]; v != "" {
 		own[PropResource] = v
 	}
@@ -71,12 +76,12 @@ func (z *ZFS) cloneDataset(ctx context.Context, owner, snapName string, port int
 	zfsstat.Inc(zfsstat.OpZfsClone)
 	stdout, stderr, err := execZfs(ctx, argv...)
 	if err != nil {
-		return "", "", fmt.Errorf("could not clone %s: %w: %s", snapName, err, zcpMessage(stderr, stdout))
+		return "", "", Runtime{}, fmt.Errorf("could not clone %s: %w: %s", snapName, err, zcpMessage(stderr, stdout))
 	}
 
 	path, err := z.mountedPath(ctx, clonePath)
 	if err != nil {
-		return "", "", err
+		return "", "", Runtime{}, err
 	}
-	return cloneName, path, nil
+	return cloneName, path, origin, nil
 }

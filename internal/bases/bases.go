@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
@@ -90,6 +91,12 @@ func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.
 		return "", err
 	}
 
+	// Before the lock, like the download: a pull touches neither the pool nor
+	// a running restore, and failing here leaves no dataset behind.
+	if err := EnsureImage(context.Background(), docker, r.Docker.Image); err != nil {
+		return "", err
+	}
+
 	baseCreationMutex.Lock()
 	defer baseCreationMutex.Unlock()
 
@@ -99,7 +106,7 @@ func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.
 	t := time.Now()
 	name := z.NewDatasetBaseName(r.Name, t)
 
-	path, err := z.CreateDataset(name, r.Name, t, r.BaseZfsProperties())
+	path, err := z.CreateDataset(name, r.Name, t, zfs.Runtime{Image: r.Docker.Image, Volume: r.Docker.Volume}, r.BaseZfsProperties())
 	if err != nil {
 		return "", err
 	}
@@ -254,6 +261,47 @@ func findNetwork(cli *client.Client) (*network.Summary, error) {
 		}
 	}
 	return nil, nil
+}
+
+// imageClient is the part of the docker client EnsureImage uses.
+type imageClient interface {
+	ImageInspect(ctx context.Context, image string, opts ...client.ImageInspectOption) (client.ImageInspectResult, error)
+	ImagePull(ctx context.Context, ref string, opts client.ImagePullOptions) (client.ImagePullResponse, error)
+}
+
+// EnsureImage pulls a database image unless the docker host already has it.
+//
+// zdapd used to rely on someone having pulled every image by hand. That held
+// while a host only ever ran the image in its resource file, but a clone now
+// runs the image its base was restored with, which can be one the resource
+// file has moved on from -- and long enough ago for it to have been pruned. A
+// host that receives bases over replication may never have run it at all.
+//
+// It waits for the whole pull and fails on an error reported inside the pull
+// stream, which reading the stream to the end does not: a pull that is denied
+// or names a missing tag still answers 200 and says so in the body.
+func EnsureImage(ctx context.Context, docker imageClient, image string) error {
+	if image == "" {
+		return errors.New("no image to run")
+	}
+	_, err := docker.ImageInspect(ctx, image)
+	if err == nil {
+		return nil
+	}
+	if !cerrdefs.IsNotFound(err) {
+		return fmt.Errorf("could not look up image %s: %w", image, err)
+	}
+
+	fmt.Println("Pulling image", image)
+	resp, err := docker.ImagePull(ctx, image, client.ImagePullOptions{})
+	if err != nil {
+		return fmt.Errorf("could not pull image %s: %w", image, err)
+	}
+	if err := resp.Wait(ctx); err != nil {
+		return fmt.Errorf("could not pull image %s: %w", image, err)
+	}
+	fmt.Println("Pulled image", image)
+	return nil
 }
 
 func EnsureNetwork(cli *client.Client) (*network.Summary, error) {

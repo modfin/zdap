@@ -27,6 +27,34 @@ const PropPort = "zdap:port"
 const PropExpires = "zdap:expires_at"
 const PropHealthy = "zdap:healthy"
 
+// PropImage and PropVolume record the container a base was restored in: the
+// image, and the path its dataset was mounted at inside it. A clone has to run
+// the same image against the same path, and the resource file cannot be
+// trusted to still say what it said when an older base was built -- it is
+// edited whenever the source database moves to a newer version.
+const PropImage = "zdap:image"
+const PropVolume = "zdap:volume"
+
+// Runtime is the container a base was restored in, as recorded on the base by
+// PropImage and PropVolume. A field is empty when the base does not record it,
+// which is true of every base built before these properties existed.
+type Runtime struct {
+	Image  string
+	Volume string
+}
+
+// props renders the fields that are set as zdap:* properties.
+func (rt Runtime) props() map[string]string {
+	p := map[string]string{}
+	if rt.Image != "" {
+		p[PropImage] = rt.Image
+	}
+	if rt.Volume != "" {
+		p[PropVolume] = rt.Volume
+	}
+	return p
+}
+
 // TimestampFormat is how zdap writes a time into a dataset name and into the
 // zdap:created_at, zdap:snapped_at and zdap:expires_at properties.
 //

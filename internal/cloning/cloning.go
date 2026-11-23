@@ -129,11 +129,12 @@ func createClone(lst *zfs.Listing, owner string, snap string, r internal.Resourc
 	if err != nil {
 		return nil, err
 	}
-	cloneName, path, err := z.CloneDataset(owner, candidate, port, clonePooled, r.CloneZfsProperties())
+	cloneName, path, origin, err := z.CloneDataset(owner, candidate, port, clonePooled, r.CloneZfsProperties())
 	if err != nil {
 		return nil, err
 	}
 	fmt.Println(" - clone name", cloneName)
+	rt := runtimeFor(origin, r)
 
 	// The dataset exists from here on, so every later failure has to take it
 	// down again. Nothing records a clone anywhere else: zdap discovers clones
@@ -160,6 +161,14 @@ func createClone(lst *zfs.Listing, owner string, snap string, r internal.Resourc
 			err = errors.Join(err, fmt.Errorf("rollback of %s failed, it is left on the pool: %w", cloneName, rerr))
 		}
 	}()
+
+	if rt.Image != r.Docker.Image || rt.Volume != r.Docker.Volume {
+		fmt.Printf(" - running %s with %s at %s as recorded on its base (resource file says %s at %s)\n",
+			cloneName, rt.Image, rt.Volume, r.Docker.Image, r.Docker.Volume)
+	}
+	if err := bases.EnsureImage(context.Background(), docker, rt.Image); err != nil {
+		return nil, err
+	}
 
 	// Pull zdap-proxy image
 	proxyImageName := "modfin/zdap-proxy:latest"
@@ -188,7 +197,7 @@ func createClone(lst *zfs.Listing, owner string, snap string, r internal.Resourc
 
 	resp, err := docker.ContainerCreate(context.Background(), client.ContainerCreateOptions{
 		Config: &container.Config{
-			Image:      r.Docker.Image,
+			Image:      rt.Image,
 			Entrypoint: r.CloneEntrypoint(),
 			Cmd:        r.CloneCmd(),
 			Env:        r.CloneEnv(),
@@ -220,7 +229,7 @@ func createClone(lst *zfs.Listing, owner string, snap string, r internal.Resourc
 				{
 					Type:   mount.TypeBind,
 					Source: path,
-					Target: r.Docker.Volume,
+					Target: rt.Volume,
 				},
 			},
 		},
@@ -321,4 +330,24 @@ func (c *CloneContext) DestroyClone(lst *zfs.Listing, cloneName string) error {
 	}
 
 	return bases.DestroyClone(cloneName, c.Docker, c.Z)
+}
+
+// runtimeFor is the image a clone runs and the path its dataset is mounted at
+// inside it: what its base was restored with, wherever the base records it.
+//
+// The resource file is only the fallback, for bases built before zdap recorded
+// either. It describes the next restore, not the bases already on the pool:
+// it is changed to follow the source database to a new version, and a clone of
+// an older base started on the new image fails to start at best. A changed
+// volume is worse, since the image then finds no cluster where it looks for
+// one and initialises an empty database over the bind instead of failing.
+func runtimeFor(origin zfs.Runtime, r internal.Resource) zfs.Runtime {
+	rt := zfs.Runtime{Image: r.Docker.Image, Volume: r.Docker.Volume}
+	if origin.Image != "" {
+		rt.Image = origin.Image
+	}
+	if origin.Volume != "" {
+		rt.Volume = origin.Volume
+	}
+	return rt
 }

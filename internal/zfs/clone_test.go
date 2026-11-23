@@ -69,7 +69,7 @@ func TestCloneRefusesWhatIsNotAZdapSnapshot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			args := stubZfs(t, "", "", nil)
 
-			_, _, err := NewZFS("zdap/1/databases").CloneDataset("alice", name, 5432, false, nil)
+			_, _, _, err := NewZFS("zdap/1/databases").CloneDataset("alice", name, 5432, false, nil)
 			if err == nil {
 				t.Fatalf("CloneDataset(%q) succeeded, want a refusal", name)
 			}
@@ -84,7 +84,7 @@ func TestCloneSetsEveryPropertyAtCreation(t *testing.T) {
 	s := &cloneStub{}
 	s.install(t)
 
-	name, path, err := NewZFS("zdap/1/databases").CloneDataset(
+	name, path, _, err := NewZFS("zdap/1/databases").CloneDataset(
 		"alice", testSnap, 36043, true, map[string]string{"recordsize": "16k"})
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +141,7 @@ func TestCloneIgnoresZdapPropertiesFromTheResourceFile(t *testing.T) {
 	s := &cloneStub{}
 	s.install(t)
 
-	_, _, err := NewZFS("zdap/1/databases").CloneDataset("alice", testSnap, 5432, false,
+	_, _, _, err := NewZFS("zdap/1/databases").CloneDataset("alice", testSnap, 5432, false,
 		map[string]string{"zdap:owner": "mallory", "recordsize": "16k"})
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestCloneDoesNotCopyAnUnsetOriginProperty(t *testing.T) {
 	s := &cloneStub{originProps: "zdap:resource\t-\nzdap:created_at\t-\n"}
 	s.install(t)
 
-	if _, _, err := NewZFS("zdap/1/databases").CloneDataset("alice", testSnap, 5432, false, nil); err != nil {
+	if _, _, _, err := NewZFS("zdap/1/databases").CloneDataset("alice", testSnap, 5432, false, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -178,7 +178,7 @@ func TestCloneFailsWhenTheNewDatasetIsNotMounted(t *testing.T) {
 	s := &cloneStub{cloneState: "mounted\tno\nmountpoint\t-\n"}
 	s.install(t)
 
-	_, _, err := NewZFS("zdap/1/databases").CloneDataset("alice", testSnap, 5432, false, nil)
+	_, _, _, err := NewZFS("zdap/1/databases").CloneDataset("alice", testSnap, 5432, false, nil)
 	if err == nil {
 		t.Fatal("want an error for a clone that is not mounted")
 	}
@@ -191,7 +191,7 @@ func TestCloneReportsWhatZfsSaid(t *testing.T) {
 	s := &cloneStub{cloneErr: errors.New("exit status 1"), cloneStderr: "cannot create 'x': out of space"}
 	s.install(t)
 
-	_, _, err := NewZFS("zdap/1/databases").CloneDataset("alice", testSnap, 5432, false, nil)
+	_, _, _, err := NewZFS("zdap/1/databases").CloneDataset("alice", testSnap, 5432, false, nil)
 	if err == nil {
 		t.Fatal("want an error when zfs clone fails")
 	}
@@ -205,5 +205,55 @@ func TestPropArgsAreSortedSoTheCommandIsStable(t *testing.T) {
 	want := []string{"-o", "a=1", "-o", "b=2", "-o", "c=3"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("propArgs = %q, want %q", got, want)
+	}
+}
+
+// A clone reports the runtime its base recorded, and carries it itself.
+func TestCloneReturnsAndCarriesTheBaseRuntime(t *testing.T) {
+	s := &cloneStub{originProps: "zdap:resource\tpostgres-jamboree\n" +
+		"zdap:created_at\t2026-11-14T11.22.12\n" +
+		"zdap:image\ttimescale/timescaledb:2.12.0-pg15\n" +
+		"zdap:volume\t/var/lib/postgresql/data\n"}
+	s.install(t)
+
+	_, _, rt, err := NewZFS("zdap/1/databases").CloneDataset("alice", testSnap, 5432, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Runtime{Image: "timescale/timescaledb:2.12.0-pg15", Volume: "/var/lib/postgresql/data"}
+	if rt != want {
+		t.Errorf("runtime = %+v, want %+v", rt, want)
+	}
+	if got, _ := opt(s.cloneArgs, PropImage); got != want.Image {
+		t.Errorf("%s on the clone = %q, want %q", PropImage, got, want.Image)
+	}
+	if got, _ := opt(s.cloneArgs, PropVolume); got != want.Volume {
+		t.Errorf("%s on the clone = %q, want %q", PropVolume, got, want.Volume)
+	}
+	// Still one read of the origin, not one per property.
+	if len(s.gets) != 2 {
+		t.Errorf("gets = %q, want the origin once then the clone", s.gets)
+	}
+}
+
+// Every base built before zdap recorded a runtime: the caller gets an empty one
+// and falls back to the resource file, and nothing is written as "-".
+func TestCloneOfABaseWithoutARuntime(t *testing.T) {
+	s := &cloneStub{originProps: "zdap:resource\tpostgres-trade\n" +
+		"zdap:created_at\t2026-11-14T11.22.12\n" +
+		"zdap:image\t-\nzdap:volume\t-\n"}
+	s.install(t)
+
+	_, _, rt, err := NewZFS("zdap/1/databases").CloneDataset("alice", testSnap, 5432, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt != (Runtime{}) {
+		t.Errorf("runtime = %+v, want empty for a base that records none", rt)
+	}
+	for _, prop := range []string{PropImage, PropVolume} {
+		if v, ok := opt(s.cloneArgs, prop); ok {
+			t.Errorf("%s was set to %q on the clone of a base without one", prop, v)
+		}
 	}
 }

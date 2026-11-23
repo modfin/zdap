@@ -45,7 +45,7 @@ func TestCreateSetsPropertiesAtCreation(t *testing.T) {
 	s.install(t)
 
 	path, err := NewZFS("zdap/1/databases").CreateDataset(
-		testBase, "postgres-trade", testCreation, map[string]string{"recordsize": "64k"})
+		testBase, "postgres-trade", testCreation, Runtime{}, map[string]string{"recordsize": "64k"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestCreateAndSnapshotRefuseNamesThatAreNotBases(t *testing.T) {
 			args := stubZfs(t, "", "", nil)
 			z := NewZFS("zdap/1/databases")
 
-			if _, err := z.CreateDataset(name, "r", testCreation, nil); err == nil {
+			if _, err := z.CreateDataset(name, "r", testCreation, Runtime{}, nil); err == nil {
 				t.Errorf("CreateDataset(%q) succeeded, want a refusal", name)
 			}
 			if err := z.SnapDataset(name, "r", testCreation); err == nil {
@@ -100,7 +100,7 @@ func TestCreateFailsWhenTheDatasetIsNotMounted(t *testing.T) {
 	s := &writeStub{state: "mounted\tno\nmountpoint\t-\n"}
 	s.install(t)
 
-	_, err := NewZFS("zdap/1/databases").CreateDataset(testBase, "postgres-trade", testCreation, nil)
+	_, err := NewZFS("zdap/1/databases").CreateDataset(testBase, "postgres-trade", testCreation, Runtime{}, nil)
 	if err == nil {
 		t.Fatal("want an error for a dataset that is not mounted")
 	}
@@ -113,7 +113,7 @@ func TestCreateReportsWhatZfsSaid(t *testing.T) {
 	s := &writeStub{err: errors.New("exit status 1"), stderr: "cannot create: out of space"}
 	s.install(t)
 
-	_, err := NewZFS("zdap/1/databases").CreateDataset(testBase, "postgres-trade", testCreation, nil)
+	_, err := NewZFS("zdap/1/databases").CreateDataset(testBase, "postgres-trade", testCreation, Runtime{}, nil)
 	if err == nil {
 		t.Fatal("want an error when zfs create fails")
 	}
@@ -126,7 +126,7 @@ func TestResourcePropertiesCannotOverrideZdapPropsOnCreate(t *testing.T) {
 	s := &writeStub{}
 	s.install(t)
 
-	_, err := NewZFS("zdap/1/databases").CreateDataset(testBase, "postgres-trade", testCreation,
+	_, err := NewZFS("zdap/1/databases").CreateDataset(testBase, "postgres-trade", testCreation, Runtime{},
 		map[string]string{"zdap:resource": "something-else"})
 	if err != nil {
 		t.Fatal(err)
@@ -173,5 +173,58 @@ func TestSnapshotReportsWhatZfsSaid(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("error = %v, want it to carry what zfs printed", err)
+	}
+}
+
+// The image and volume a base is restored with are written with it, so a clone
+// of it can still find them after the resource file has moved on.
+func TestCreateRecordsTheRuntime(t *testing.T) {
+	s := &writeStub{}
+	s.install(t)
+
+	rt := Runtime{Image: "timescale/timescaledb:2.12.0-pg15", Volume: "/var/lib/postgresql/data"}
+	if _, err := NewZFS("zdap/1/databases").CreateDataset(testBase, "postgres-jamboree", testCreation, rt, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := opt(s.args, PropImage); got != rt.Image {
+		t.Errorf("%s = %q, want %q", PropImage, got, rt.Image)
+	}
+	if got, _ := opt(s.args, PropVolume); got != rt.Volume {
+		t.Errorf("%s = %q, want %q", PropVolume, got, rt.Volume)
+	}
+}
+
+// An unknown runtime is left unset rather than written as an empty string, so
+// that a clone falls back to the resource file instead of to "".
+func TestCreateLeavesAnUnknownRuntimeUnset(t *testing.T) {
+	s := &writeStub{}
+	s.install(t)
+
+	if _, err := NewZFS("zdap/1/databases").CreateDataset(testBase, "r", testCreation, Runtime{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, prop := range []string{PropImage, PropVolume} {
+		if v, ok := opt(s.args, prop); ok {
+			t.Errorf("%s was set to %q for an unknown runtime", prop, v)
+		}
+	}
+}
+
+// The resource file's zfs properties must not be able to claim another image.
+func TestResourcePropertiesCannotOverrideTheRuntime(t *testing.T) {
+	s := &writeStub{}
+	s.install(t)
+
+	_, err := NewZFS("zdap/1/databases").CreateDataset(testBase, "r", testCreation,
+		Runtime{Image: "postgres:15", Volume: "/data"},
+		map[string]string{PropImage: "evil:latest", PropVolume: "/elsewhere"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := opt(s.args, PropImage); got != "postgres:15" {
+		t.Errorf("%s = %q, want the image the restore ran", PropImage, got)
+	}
+	if got, _ := opt(s.args, PropVolume); got != "/data" {
+		t.Errorf("%s = %q, want the volume the restore used", PropVolume, got)
 	}
 }
