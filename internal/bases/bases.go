@@ -166,15 +166,14 @@ func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.
 	}
 	fmt.Println("Container", name, "is healthy")
 
-	fmt.Print("Creating database...")
-	defer fmt.Println(" done")
+	fmt.Println("Creating", name, "database...")
 	_, err = runScript(filepath.Join(resourcePath, r.Creation), file, name)
 	if err != nil {
 		return "", err
 	}
 
-	d := 60 // seconds
-	err = stopContainer(docker, resp.ID, d)
+	fmt.Println("Container", name, "is being stopped")
+	err = stopBaseContainer(docker, resp.ID, name)
 	if err != nil {
 		return "", err
 	}
@@ -191,6 +190,8 @@ func CreateBaseAndSnap(resourcePath string, r internal.Resource, docker *client.
 	if snapCompletedCallback != nil {
 		snapCompletedCallback()
 	}
+
+	fmt.Println("Database", name, "restore done")
 	return name, err
 }
 
@@ -340,7 +341,7 @@ func DestroyClone(cloneName string, docker *client.Client, z *zfs.ZFS) error {
 				if c.State == "running" {
 					fmt.Println(" - Killing", name)
 					d := 0
-					err = stopContainer(docker, c.ID, d)
+					_, err = stopContainer(docker, c.ID, d)
 					if err != nil {
 						return err
 					}
@@ -363,24 +364,60 @@ func removeContainer(docker *client.Client, id string) error {
 	return err
 }
 
-func stopContainer(docker *client.Client, id string, timeout int) error {
+// baseStopTimeout is how long a restore container gets to shut down before
+// docker kills it. PostgreSQL writes its shutdown checkpoint in that time, and a
+// restore that runs with checkpoints pushed out (checkpoint_timeout and
+// max_wal_size in restore_params) leaves that checkpoint everything it wrote.
+// The old 60 s was a race: on 2026-11-24 an irma-v3 restore was killed in the
+// middle of it and snapshotted with 15 GB of WAL that every clone had to replay.
+const baseStopTimeout = 15 * time.Minute
+
+// containerStopper is the part of the docker client that stopping a container
+// needs, so tests can stand in for it.
+type containerStopper interface {
+	ContainerStop(ctx context.Context, id string, options client.ContainerStopOptions) (client.ContainerStopResult, error)
+	ContainerWait(ctx context.Context, id string, options client.ContainerWaitOptions) client.ContainerWaitResult
+}
+
+// stopBaseContainer stops the container a base was restored in and refuses a
+// stop that did not end in a clean exit. A database that was killed instead of
+// shut down is not a base: snapshotting it would hand every clone, and every
+// peer it is replicated to, a crash recovery, or worse. The container and the
+// dataset are left behind for inspection, as for any other failed restore.
+func stopBaseContainer(docker containerStopper, id, name string) error {
+	code, err := stopContainer(docker, id, int(baseStopTimeout/time.Second))
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("restore container %s exited with code %d when stopped (grace period %s), so its database did not shut down cleanly; %s was not snapshotted",
+			name, code, baseStopTimeout, name)
+	}
+	return nil
+}
+
+// stopContainer stops a container, giving it timeout seconds after the stop
+// signal before docker kills it, and returns the code it exited with. A stop
+// that escalates to SIGKILL is still a stopped container (exit code 137), so it
+// is up to the caller whether that code matters: it does not when destroying a
+// clone, and it does for a base.
+func stopContainer(docker containerStopper, id string, timeout int) (int64, error) {
 	// Ignore ContainerStopResult since it currently is an empty struct
 	_, err := docker.ContainerStop(context.Background(), id, client.ContainerStopOptions{Timeout: &timeout})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	w := docker.ContainerWait(context.Background(), id, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
 	case wr := <-w.Result:
 		if wr.Error != nil {
-			return fmt.Errorf("stopContainer error: %s", wr.Error.Message)
+			return 0, fmt.Errorf("stopContainer error: %s", wr.Error.Message)
 		}
-		// The exit code (wr.StatusCode) is deliberately ignored: a stop that escalates to SIGKILL (timeout 0 in DestroyClone)
-		// exits with 137, and that is still a successfully stopped container.
+		return wr.StatusCode, nil
 	case err = <-w.Error:
 		if err != nil {
-			return fmt.Errorf("stopContainer: %w", err)
+			return 0, fmt.Errorf("stopContainer: %w", err)
 		}
 	}
-	return nil
+	return 0, nil
 }
