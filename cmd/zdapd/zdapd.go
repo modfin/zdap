@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
@@ -14,6 +16,7 @@ import (
 	"github.com/modfin/zdap/internal/api"
 	"github.com/modfin/zdap/internal/config"
 	"github.com/modfin/zdap/internal/core"
+	"github.com/modfin/zdap/internal/replication"
 	"github.com/modfin/zdap/internal/utils"
 	"github.com/modfin/zdap/internal/zfs"
 	"github.com/urfave/cli/v2"
@@ -25,6 +28,7 @@ func main() {
 	var app *core.Core
 	var docker *client.Client
 	var z *zfs.ZFS
+	var tlsMaterial *config.TLSMaterial
 
 	load := func(c *cli.Context) error {
 		cfg := config.FromCli(c)
@@ -38,6 +42,27 @@ func main() {
 
 		app, err = core.NewCore(configDir, cfg.NetworkAddress, cfg.APIPort, docker, z)
 		if err != nil {
+			return err
+		}
+
+		// Replication is all-or-nothing: none of the TLS paths set means
+		// standalone, all set means replication, anything in between is fatal.
+		// A daemon that starts looking healthy with replication silently off
+		// would let bases go stale on every receiving node with no signal.
+		tlsMaterial, err = cfg.LoadTLS()
+		if err != nil {
+			return err
+		}
+		if tlsMaterial != nil {
+			cl := replication.NewClient(tlsMaterial, cfg.ReplicationPort)
+			pool := z.Pool()
+			app.SetReplicator(func(ctx context.Context, dataset string, targets []string) error {
+				return replication.PushAll(ctx, cl, pool, dataset, targets, nil)
+			})
+		}
+		// Wiring it here rather than in `serve` means a base built from the CLI
+		// replicates too, which is why the TLS paths belong in zdapd_env.
+		if err := checkReplicationConfig(app, tlsMaterial); err != nil {
 			return err
 		}
 		return nil
@@ -67,7 +92,36 @@ func main() {
 				Name:  "serve",
 				Usage: "starts http daemon for clients to interact with",
 				Action: func(c *cli.Context) error {
+					ctx, cancel := context.WithCancel(c.Context)
+					defer cancel()
+
+					// Resource files are picked up as they change, and SIGHUP
+					// asks for the same thing explicitly -- which is what you
+					// want where the watch cannot see the change, such as
+					// config on a bind or network mount.
+					go func() {
+						if err := app.WatchConfigDir(ctx); err != nil {
+							fmt.Println("[CORE] Not watching for resource changes:", err)
+						}
+					}()
+					go reloadOnSIGHUP(ctx, app)
+
+					if tlsMaterial != nil {
+						go func() {
+							if err := api.StartReplication(ctx, config.Get(), app, z, tlsMaterial); err != nil {
+								fmt.Println("[REPLICATION] Error:", err)
+							}
+						}()
+					}
+
 					return api.Start(config.Get(), app, z)
+				},
+			},
+			{
+				Name:  "check-zfs",
+				Usage: "checks the zfs channel program and zpool paths and prints what they return",
+				Action: func(c *cli.Context) error {
+					return checkZFS(c.Context, z)
 				},
 			},
 			{
@@ -88,7 +142,7 @@ func main() {
 								return errors.New("resources to create snaps from must be provided")
 							}
 							for _, resource := range c.Args().Slice() {
-								err := app.CreateBaseAndSnap(resource, c.Bool("use-existing"))
+								err := app.CreateBaseAndSnap(c.Context, resource, c.Bool("use-existing"))
 								if err != nil {
 									return err
 								}
@@ -122,14 +176,13 @@ func main() {
 
 							resource := c.Args().First()
 
-							dss, err := z.Open()
+							lst, err := z.Load(c.Context)
 							if err != nil {
 								return err
 							}
-							defer dss.Close()
 
 							if from == nil {
-								snaps, err := app.GetResourceSnaps(dss, resource)
+								snaps, err := app.GetResourceSnaps(lst, resource)
 								if err != nil {
 									return err
 								}
@@ -142,7 +195,7 @@ func main() {
 								from = &snaps[0].CreatedAt
 							}
 
-							clone, err := app.CloneResource(dss, c.String("owner"), resource, *from)
+							clone, err := app.CloneResource(lst, c.String("owner"), resource, *from)
 							if err != nil {
 								return err
 							}
@@ -172,13 +225,12 @@ func main() {
 						Action: func(c *cli.Context) error {
 
 							printSnap := func(resource string) error {
-								dss, err := z.Open()
+								lst, err := z.Load(c.Context)
 								if err != nil {
 									return err
 								}
-								defer dss.Close()
 
-								snaps, err := app.GetResourceSnaps(dss, resource)
+								snaps, err := app.GetResourceSnaps(lst, resource)
 								if err != nil {
 									return err
 								}
@@ -222,13 +274,12 @@ func main() {
 						Action: func(c *cli.Context) error {
 
 							printClone := func(resource string) error {
-								dss, err := z.Open()
+								lst, err := z.Load(c.Context)
 								if err != nil {
 									return err
 								}
-								defer dss.Close()
 
-								times, err := app.GetResourceClones(dss, resource)
+								times, err := app.GetResourceClones(lst, resource)
 								if err != nil {
 									return err
 								}
@@ -298,19 +349,19 @@ func main() {
 					{
 						Name:  "clones",
 						Usage: "destroys all clones along with any associated docker images",
-						Action: func(context *cli.Context) error {
-							return destroyClones(docker, z)
+						Action: func(c *cli.Context) error {
+							return destroyClones(c.Context, docker, z)
 						},
 					},
 					{
 						Name:  "clone",
 						Usage: "destroys a clone specific clone along with any associated docker images",
-						Action: func(context *cli.Context) error {
-							clone := context.Args().First()
+						Action: func(c *cli.Context) error {
+							clone := c.Args().First()
 							if !strings.Contains(clone, "-clone-") {
 								return errors.New("'destroy clone <name>' must contain a valid name")
 							}
-							return destroyClone(clone, docker, z)
+							return destroyClone(c.Context, clone, docker, z)
 						},
 					},
 				},
@@ -321,7 +372,13 @@ func main() {
 	err = cliapp.Run(os.Args)
 
 	if err != nil {
-		fmt.Printf("[Error] %v\n", err)
+		// Report on stderr and exit non-zero. zdapd's commands are driven by
+		// cron and by scripts, and until this exited 1 they had no way to tell
+		// a failed base creation from a successful one: the error was printed
+		// and the process still reported success. This is what the zdap client
+		// already does.
+		fmt.Fprintf(os.Stderr, "[Error] %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -382,19 +439,15 @@ func destroyAll(docker *client.Client, z *zfs.ZFS) error {
 	return z.DestroyAll()
 }
 
-func destroyClones(docker *client.Client, z *zfs.ZFS) error {
+func destroyClones(ctx context.Context, docker *client.Client, z *zfs.ZFS) error {
 	fmt.Println("Destroying Containers")
 
-	dss, err := z.Open()
+	lst, err := z.Load(ctx)
 	if err != nil {
 		return err
 	}
-	defer dss.Close()
 
-	clones, err := z.ListClones(dss)
-	if err != nil {
-		return err
-	}
+	clones := lst.Clones()
 	isClone := map[string]bool{}
 	for _, c := range clones {
 		isClone[c.Name] = true
@@ -429,19 +482,15 @@ func destroyClones(docker *client.Client, z *zfs.ZFS) error {
 	return nil
 }
 
-func destroyClone(clone string, docker *client.Client, z *zfs.ZFS) error {
+func destroyClone(ctx context.Context, clone string, docker *client.Client, z *zfs.ZFS) error {
 	fmt.Println("Destroying Containers")
 
-	dss, err := z.Open()
+	lst, err := z.Load(ctx)
 	if err != nil {
 		return err
 	}
-	defer dss.Close()
 
-	clones, err := z.ListClones(dss)
-	if err != nil {
-		return err
-	}
+	clones := lst.Clones()
 	isClone := map[string]bool{}
 	for _, c := range clones {
 		isClone[c.Name] = true
@@ -467,4 +516,142 @@ func destroyClone(clone string, docker *client.Client, z *zfs.ZFS) error {
 
 	}
 	return z.Destroy(clone)
+}
+
+// checkZFS exercises the read paths and prints what they return, so they can
+// be verified without the API.
+//
+// The channel program needs root, like the rest of zdapd, so this is the
+// quickest way to tell a permission problem from a broken program:
+//
+//	sudo env ZPOOL=zdap/1/databases CONFIG_DIR=/zdap/1/config go run ./cmd/zdapd check-zfs
+func checkZFS(ctx context.Context, z *zfs.ZFS) error {
+	fmt.Println("== channel program: list datasets ==")
+	lst, err := z.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("channel program failed: %w", err)
+	}
+
+	var bases, other []string
+	for _, name := range lst.Names() {
+		switch {
+		case zfs.IsCloneName(name), zfs.IsSnapName(name):
+			continue // listed with their parsed properties below
+		case zfs.IsBaseName(name):
+			bases = append(bases, name)
+		default:
+			other = append(other, name)
+		}
+	}
+
+	snaps := lst.Snaps()
+	clones := lst.Clones()
+	fmt.Printf(" %d bases, %d snapshots, %d clones, %d unrecognised\n\n",
+		len(bases), len(snaps), len(clones), len(other))
+
+	for _, name := range bases {
+		fmt.Println(" base    ", name)
+	}
+	// The properties are the part worth looking at: they come back from
+	// zfs.list.user_properties in the channel program, and a dataset that does
+	// not carry one is not an error. A snapshot with an empty resource or a
+	// zero created_at means the program or the parsing is wrong.
+	for _, s := range snaps {
+		fmt.Printf(" snapshot %s resource=%q created=%s\n",
+			s.Name, s.Resource, fmtTime(s.CreatedAt))
+	}
+	now := time.Now()
+	for _, c := range clones {
+		// Whether the clone pool considers it expired, which is the one place
+		// a zdap timestamp is compared against wall clock time.
+		expiry := fmtTimePtr(c.ExpiresAt)
+		if c.ExpiresAt != nil && c.ExpiresAt.Before(now) {
+			expiry += " (EXPIRED, due for pruning)"
+		}
+		fmt.Printf(" clone    %s resource=%q owner=%q created=%s snapped=%s pooled=%t healthy=%t port=%d expires=%s\n",
+			c.Name, c.Resource, c.Owner, fmtTime(c.CreatedAt), fmtTime(c.SnappedAt),
+			c.ClonePooled, c.Healthy, c.Port, expiry)
+	}
+	for _, name := range other {
+		fmt.Println(" ?       ", name)
+	}
+
+	fmt.Println()
+	fmt.Println("== zpool list: pool space ==")
+	space, err := z.Space(ctx)
+	if err != nil {
+		return fmt.Errorf("zpool list failed: %w", err)
+	}
+	fmt.Printf(" total %d\n used  %d\n free  %d\n", space.Total, space.Used, space.Free)
+	if space.Used+space.Free != space.Total {
+		return fmt.Errorf("used + free (%d) does not add up to total (%d)", space.Used+space.Free, space.Total)
+	}
+
+	fmt.Println()
+	fmt.Println("both paths work; check the resource and created values above against")
+	fmt.Println("zfs get -r all " + z.Pool() + " before trusting them")
+	return nil
+}
+
+func fmtTime(t time.Time) string {
+	if t.IsZero() {
+		return "unset"
+	}
+	return zfs.FormatTimestamp(t)
+}
+
+func fmtTimePtr(t *time.Time) string {
+	if t == nil {
+		return "none"
+	}
+	return fmtTime(*t)
+}
+
+// reloadOnSIGHUP re-reads the resource files on SIGHUP, the conventional way
+// to ask a daemon to pick up its configuration without restarting. Work that
+// is already running is unaffected: a restore or a clone keeps the resource it
+// started with.
+func reloadOnSIGHUP(ctx context.Context, app *core.Core) {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGHUP)
+	defer signal.Stop(sig)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-sig:
+			fmt.Println("[CORE] SIGHUP, reloading resources")
+			changed, err := app.Reload()
+			switch {
+			case err != nil:
+				fmt.Println("[CORE] Error:", err)
+			case changed:
+				fmt.Println("[CORE] Reloaded resources")
+			default:
+				fmt.Println("[CORE] Resources unchanged")
+			}
+		}
+	}
+}
+
+// checkReplicationConfig refuses a configuration that asks for replication it
+// cannot perform. A resource listing replicate_to on a node without TLS would
+// otherwise build its base and quietly keep it to itself.
+func checkReplicationConfig(app *core.Core, m *config.TLSMaterial) error {
+	if m != nil {
+		return nil
+	}
+	var wanting []string
+	for _, name := range app.GetResourcesNames() {
+		r, ok := app.GetResource(name)
+		if ok && len(r.ReplicateTo) > 0 {
+			wanting = append(wanting, name)
+		}
+	}
+	if len(wanting) > 0 {
+		return fmt.Errorf("resources %v set replicate_to but replication TLS is not configured "+
+			"(set ZDAP_TLS_CA, ZDAP_TLS_CERT and ZDAP_TLS_KEY)", wanting)
+	}
+	return nil
 }

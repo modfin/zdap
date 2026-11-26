@@ -15,7 +15,6 @@ import (
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
-	"github.com/modfin/henry/slicez"
 	"github.com/modfin/zdap"
 	"github.com/modfin/zdap/internal"
 	"github.com/modfin/zdap/internal/bases"
@@ -25,7 +24,9 @@ import (
 )
 
 type CloneContext struct {
-	Resource  *internal.Resource
+	// Resource is held by value: a clone keeps the configuration it started
+	// with, so a resource file reloaded mid-clone cannot change it.
+	Resource  internal.Resource
 	Docker    *client.Client
 	Z         *zfs.ZFS
 	ConfigDir string
@@ -34,24 +35,24 @@ type CloneContext struct {
 	ApiPort        int
 }
 
-func (c *CloneContext) CloneResource(dss *zfs.Dataset, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
-	return c.CloneResourceHandlePooling(dss, owner, resourceName, at, false)
+func (c *CloneContext) CloneResource(lst *zfs.Listing, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
+	return c.CloneResourceHandlePooling(lst, owner, resourceName, at, false)
 }
 
-func (c *CloneContext) CloneResourcePooled(dss *zfs.Dataset, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
-	return c.CloneResourceHandlePooling(dss, owner, resourceName, at, true)
+func (c *CloneContext) CloneResourcePooled(lst *zfs.Listing, owner string, resourceName string, at time.Time) (*zdap.PublicClone, error) {
+	return c.CloneResourceHandlePooling(lst, owner, resourceName, at, true)
 }
 
-func (c *CloneContext) CloneResourceHandlePooling(dss *zfs.Dataset, owner string, resourceName string, at time.Time, pooled bool) (*zdap.PublicClone, error) {
+func (c *CloneContext) CloneResourceHandlePooling(lst *zfs.Listing, owner string, resourceName string, at time.Time, pooled bool) (*zdap.PublicClone, error) {
 
 	r := c.Resource
-	if r == nil {
+	if r.Name == "" {
 		return nil, fmt.Errorf("could not find resource %s", resourceName)
 	}
 
 	snapName := c.Z.GetDatasetSnapNameAt(resourceName, at)
 
-	clone, err := createClone(dss, owner, snapName, r, c.Docker, c.Z, pooled)
+	clone, err := createClone(lst, owner, snapName, r, c.Docker, c.Z, pooled)
 	if err != nil {
 		return nil, err
 	}
@@ -61,11 +62,8 @@ func (c *CloneContext) CloneResourceHandlePooling(dss *zfs.Dataset, owner string
 	return clone, nil
 }
 
-func (c *CloneContext) GetResourceSnaps(dss *zfs.Dataset, resourceName string) ([]servermodel.ServerInternalSnapshot, error) {
-	snaps, err := c.Z.ListSnaps(dss)
-	if err != nil {
-		return nil, err
-	}
+func (c *CloneContext) GetResourceSnaps(lst *zfs.Listing, resourceName string) ([]servermodel.ServerInternalSnapshot, error) {
+	snaps := lst.Snaps()
 	snapReg, err := regexp.Compile(fmt.Sprintf("^zdap-%s-base-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}.[0-9]{2}.[0-9]{2}@snap$", resourceName))
 	if err != nil {
 		return nil, err
@@ -80,8 +78,8 @@ func (c *CloneContext) GetResourceSnaps(dss *zfs.Dataset, resourceName string) (
 	return rsnap, nil
 }
 
-func (c *CloneContext) GetLatestResourceSnap(dss *zfs.Dataset, resourceName string) (servermodel.ServerInternalSnapshot, error) {
-	snaps, err := c.GetResourceSnaps(dss, resourceName)
+func (c *CloneContext) GetLatestResourceSnap(lst *zfs.Listing, resourceName string) (servermodel.ServerInternalSnapshot, error) {
+	snaps, err := c.GetResourceSnaps(lst, resourceName)
 	if err != nil || snaps == nil {
 		return servermodel.ServerInternalSnapshot{}, err
 	}
@@ -97,7 +95,11 @@ func (c *CloneContext) GetLatestResourceSnap(dss *zfs.Dataset, resourceName stri
 	return snaps[0], nil
 }
 
-func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resource, docker *client.Client, z *zfs.ZFS, clonePooled bool) (*zdap.PublicClone, error) {
+// createClone builds a clone: the ZFS dataset, the database container on top
+// of it and the proxy in front of that. It is all-or-nothing. If any step
+// after the dataset exists fails, the dataset and whatever containers were
+// created are torn down again before returning.
+func createClone(lst *zfs.Listing, owner string, snap string, r internal.Resource, docker *client.Client, z *zfs.ZFS, clonePooled bool) (clone *zdap.PublicClone, err error) {
 	net, err := bases.EnsureNetwork(docker)
 	if err != nil {
 		return nil, err
@@ -109,10 +111,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 		},
 	}
 
-	snaps, err := z.ListSnaps(dss)
-	if err != nil {
-		return nil, err
-	}
+	snaps := lst.Snaps()
 
 	var candidate string
 	for _, s := range snaps {
@@ -130,11 +129,46 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	if err != nil {
 		return nil, err
 	}
-	cloneName, path, err := z.CloneDataset(owner, candidate, port, clonePooled, r.CloneZfsProperties())
+	cloneName, path, origin, err := z.CloneDataset(owner, candidate, port, clonePooled, r.CloneZfsProperties())
 	if err != nil {
 		return nil, err
 	}
 	fmt.Println(" - clone name", cloneName)
+	rt := runtimeFor(origin, r)
+
+	// The dataset exists from here on, so every later failure has to take it
+	// down again. Nothing records a clone anywhere else: zdap discovers clones
+	// by listing the pool, so a half-built one is indistinguishable from a real
+	// one to /resources/:resource/clones and to the clone pool, and nothing
+	// ever reclaims it. That is how the pool accumulates datasets with no
+	// container, and ports that look taken.
+	//
+	// This is a flag rather than a check on the returned error because echo
+	// recovers panics in handlers: a panic in here does not stop zdapd, it just
+	// returns a 500, and the dataset would be left behind all the same.
+	done := false
+	defer func() {
+		if done {
+			return
+		}
+		fmt.Println(" - clone failed, rolling back", cloneName)
+		rerr := bases.DestroyClone(cloneName, docker, z)
+		if rerr != nil {
+			// The leak we were trying to avoid happened anyway. Say so in the
+			// error rather than only on stdout, so the caller reports a name
+			// someone can clean up by hand.
+			fmt.Printf(" - rollback of %s failed: %v\n", cloneName, rerr)
+			err = errors.Join(err, fmt.Errorf("rollback of %s failed, it is left on the pool: %w", cloneName, rerr))
+		}
+	}()
+
+	if rt.Image != r.Docker.Image || rt.Volume != r.Docker.Volume {
+		fmt.Printf(" - running %s with %s at %s as recorded on its base (resource file says %s at %s)\n",
+			cloneName, rt.Image, rt.Volume, r.Docker.Image, r.Docker.Volume)
+	}
+	if err := bases.EnsureImage(context.Background(), docker, rt.Image); err != nil {
+		return nil, err
+	}
 
 	// Pull zdap-proxy image
 	proxyImageName := "modfin/zdap-proxy:latest"
@@ -163,13 +197,17 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 
 	resp, err := docker.ContainerCreate(context.Background(), client.ContainerCreateOptions{
 		Config: &container.Config{
-			Image:      r.Docker.Image,
+			Image:      rt.Image,
 			Entrypoint: r.CloneEntrypoint(),
 			Cmd:        r.CloneCmd(),
 			Env:        r.CloneEnv(),
 			Tty:        false,
 			Labels:     map[string]string{"owner": owner},
-			Domainname: cloneName,
+			// No Domainname: setdomainname(2) caps it at 64 bytes and a clone
+			// name is ~74, so runc fails container init with
+			// "setdomainname: invalid argument". The container is reachable as
+			// cloneName through Name below, which is what the proxy targets,
+			// so the domain name was doing nothing anyway.
 			ExposedPorts: network.PortSet{
 				dbPort: struct{}{},
 			},
@@ -191,7 +229,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 				{
 					Type:   mount.TypeBind,
 					Source: path,
-					Target: r.Docker.Volume,
+					Target: rt.Volume,
 				},
 			},
 		},
@@ -220,8 +258,7 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 				proxyTCPPort: struct{}{},
 				proxyUDPPort: struct{}{},
 			},
-			Labels:     map[string]string{"owner": owner},
-			Domainname: fmt.Sprintf("%s-proxy", cloneName),
+			Labels: map[string]string{"owner": owner},
 		},
 		HostConfig: &container.HostConfig{
 			RestartPolicy: container.RestartPolicy{
@@ -249,40 +286,26 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	if len(dates) != 2 {
 		return nil, fmt.Errorf("did not find 2 snap dates in clone name, got %d", len(dates))
 	}
-	snappedAt, err := time.Parse(zfs.TimestampFormat, string(dates[0]))
+	snappedAt, err := zfs.ParseTimestamp(string(dates[0]))
 	if err != nil {
 		return nil, err
 	}
-	createdAt, err := time.Parse(zfs.TimestampFormat, string(dates[1]))
-	if err != nil {
-		return nil, err
-	}
-
-	dss2, err := z.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer dss2.Close()
-
-	clones, err := z.ListClones(dss2)
+	createdAt, err := zfs.ParseTimestamp(string(dates[1]))
 	if err != nil {
 		return nil, err
 	}
 
-	matchingClones := slicez.Filter(clones, func(c servermodel.ServerInternalClone) bool {
-		return c.Name == cloneName
-	})
-	if len(matchingClones) > 0 {
-		fmt.Printf("Setting healthy for %s\n", cloneName)
-		m := matchingClones[0]
-		err := z.SetUserProperty(*m.Dataset, zfs.PropHealthy, "true")
-		if err != nil {
-			fmt.Printf("Error when setting healthy prop %s", err)
-			return nil, err
-		}
-		defer m.Dataset.Close()
+	// Marking the clone healthy used to mean opening the whole pool, listing
+	// every clone and keeping the matching handle; the property is written by
+	// name instead.
+	fmt.Printf("Setting healthy for %s\n", cloneName)
+	err = z.SetUserProperty(cloneName, zfs.PropHealthy, "true")
+	if err != nil {
+		fmt.Printf("Error when setting healthy prop %s", err)
+		return nil, err
 	}
 
+	done = true
 	return &zdap.PublicClone{
 		Name:      cloneName,
 		Resource:  r.Name,
@@ -293,11 +316,8 @@ func createClone(dss *zfs.Dataset, owner string, snap string, r *internal.Resour
 	}, nil
 }
 
-func (c *CloneContext) DestroyClone(dss *zfs.Dataset, cloneName string) error {
-	clones, err := c.Z.ListClones(dss)
-	if err != nil {
-		return err
-	}
+func (c *CloneContext) DestroyClone(lst *zfs.Listing, cloneName string) error {
+	clones := lst.Clones()
 	var contain bool
 	for _, c := range clones {
 		if c.Name == cloneName {
@@ -310,4 +330,24 @@ func (c *CloneContext) DestroyClone(dss *zfs.Dataset, cloneName string) error {
 	}
 
 	return bases.DestroyClone(cloneName, c.Docker, c.Z)
+}
+
+// runtimeFor is the image a clone runs and the path its dataset is mounted at
+// inside it: what its base was restored with, wherever the base records it.
+//
+// The resource file is only the fallback, for bases built before zdap recorded
+// either. It describes the next restore, not the bases already on the pool:
+// it is changed to follow the source database to a new version, and a clone of
+// an older base started on the new image fails to start at best. A changed
+// volume is worse, since the image then finds no cluster where it looks for
+// one and initialises an empty database over the bind instead of failing.
+func runtimeFor(origin zfs.Runtime, r internal.Resource) zfs.Runtime {
+	rt := zfs.Runtime{Image: r.Docker.Image, Volume: r.Docker.Volume}
+	if origin.Image != "" {
+		rt.Image = origin.Image
+	}
+	if origin.Volume != "" {
+		rt.Volume = origin.Volume
+	}
+	return rt
 }

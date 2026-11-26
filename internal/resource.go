@@ -17,6 +17,13 @@ type Resource struct {
 	ClonePool     ClonePoolConfig `yaml:"clone_pool"`
 	RestoreParams ContainerParams `yaml:"restore_params"`
 	CloneParams   ContainerParams `yaml:"clone_params"`
+
+	// ReplicateTo lists peers that should receive this resource's bases, as
+	// "host" or "host:port". The node that holds the cron for a resource builds
+	// it and pushes it here; peers list the same resource without a cron and
+	// only receive. Empty means build locally and keep it local, which is what
+	// every resource does today.
+	ReplicateTo []string `yaml:"replicate_to"`
 }
 
 type Docker struct {

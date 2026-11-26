@@ -22,6 +22,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 
 	e.Use(middleware.RequestLogger())
 	e.Use(middleware.RemoveTrailingSlash())
+	e.Use(zfsStatsMiddleware)
 
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -35,14 +36,10 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		}
 	})
 
+	// /status reports counts and capacity, which the ZFS layer answers without
+	// opening the pool, so this handler does not take a dataset.
 	e.GET("/status", func(c *echo.Context) error {
-		dss, err := z.Open()
-		if err != nil {
-			return fmt.Errorf("could not open dataset, %w", err)
-		}
-		defer dss.Close()
-
-		res, err := getStatus(dss, app)
+		res, err := getStatus(c.Request().Context(), app)
 		if err != nil {
 			return fmt.Errorf("could not retrieve status, %w", err)
 		}
@@ -50,13 +47,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.GET("/resources", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		res, err := getResources(dss, c.Get("owner").(string), app)
+		res, err := getResources(lst, c.Get("owner").(string), app)
 		if err != nil {
 			return err
 		}
@@ -64,13 +60,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.GET("/resources/:resource", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		res, err := getResource(dss, c.Get("owner").(string), c.Param("resource"), app)
+		res, err := getResource(lst, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -78,13 +73,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.GET("/resources/:resource/clones", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
+		snaps, err := getSnaps(lst, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -99,19 +93,18 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.DELETE("/resources/:resource/clones", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
+		snaps, err := getSnaps(lst, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
 		for _, snap := range snaps {
 			for _, clone := range snap.Clones {
-				err = app.DestroyClone(dss, clone.Name)
+				err = app.DestroyClone(lst, clone.Name)
 				if err != nil {
 					return err
 				}
@@ -121,13 +114,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.DELETE("/resources/:resource/clones/:time", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		snaps, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
+		snaps, err := getSnaps(lst, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -139,7 +131,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		for _, snap := range snaps {
 			for _, clone := range snap.Clones {
 				if clone.CreatedAt.Equal(at) {
-					err = app.DestroyClone(dss, clone.Name)
+					err = app.DestroyClone(lst, clone.Name)
 					if err != nil {
 						return err
 					}
@@ -151,13 +143,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	})
 
 	e.GET("/resources/:resource/snaps", func(c *echo.Context) error {
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		res, err := getSnaps(dss, c.Get("owner").(string), c.Param("resource"), app)
+		res, err := getSnaps(lst, c.Get("owner").(string), c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -167,13 +158,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 	e.POST("/resources/:resource/snaps", func(c *echo.Context) error {
 		resource := c.Param("resource")
 
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		snaps, err := getSnaps(dss, c.Get("owner").(string), resource, app)
+		snaps, err := getSnaps(lst, c.Get("owner").(string), resource, app)
 		if err != nil {
 			return err
 		}
@@ -183,7 +173,7 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 				max = s.CreatedAt
 			}
 		}
-		clone, err := app.CloneResource(dss, c.Get("owner").(string), resource, max)
+		clone, err := app.CloneResource(lst, c.Get("owner").(string), resource, max)
 		if err != nil {
 			return err
 		}
@@ -197,13 +187,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 			return err
 		}
 
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		clone, err := app.CloneResource(dss, c.Get("owner").(string), resource, at)
+		clone, err := app.CloneResource(lst, c.Get("owner").(string), resource, at)
 		if err != nil {
 			return err
 		}
@@ -216,13 +205,12 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 			return err
 		}
 
-		dss, err := z.Open()
+		lst, err := z.Load(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		defer dss.Close()
 
-		res, err := getSnap(dss, c.Get("owner").(string), at, c.Param("resource"), app)
+		res, err := getSnap(lst, c.Get("owner").(string), at, c.Param("resource"), app)
 		if err != nil {
 			return err
 		}
@@ -255,12 +243,18 @@ func Start(cfg *config.Config, app *core.Core, z *zfs.ZFS) error {
 		return app.ExpirePooledClone(resource, claimId)
 	})
 
+	registerZFSOpsRoutes(e)
+
 	fmt.Println("== Loaded Resources ==")
 	for _, r := range app.GetResourcesNames() {
 		fmt.Println(" -", r)
 	}
 	fmt.Println("== Starting Cron ==")
-	fmt.Println(app.Start())
+	if err := app.Start(); err != nil {
+		// Previously printed and dropped, so a bad cron expression left the
+		// API serving with no schedules and nothing but a line in the log.
+		return fmt.Errorf("could not start cron, %w", err)
+	}
 
 	fmt.Println("== Starting API Server ==")
 	return e.Start(fmt.Sprintf(":%d", cfg.APIPort))

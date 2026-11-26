@@ -1,0 +1,299 @@
+package api
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/tls"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net/http"
+	"regexp"
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
+	"github.com/modfin/zdap/internal/config"
+	"github.com/modfin/zdap/internal/core"
+	"github.com/modfin/zdap/internal/replication"
+	"github.com/modfin/zdap/internal/zfs"
+)
+
+// StartReplication serves the node-to-node API on its own mTLS listener.
+//
+// It is deliberately not folded into the developer API: that one is
+// unauthenticated and every developer and CI job reaches it, so requiring
+// client certificates there would mean issuing a certificate to each of them.
+// Keeping the two apart also lets the replication port be firewalled on its own.
+func StartReplication(ctx context.Context, cfg *config.Config, app *core.Core, z *zfs.ZFS, m *config.TLSMaterial) error {
+	e := echo.New()
+
+	// A panic in a handler here would otherwise take the whole daemon down with
+	// it, stopping restores and clone serving on this node because a peer sent
+	// something malformed.
+	e.Use(middleware.Recover())
+
+	recv := replication.NewReceiver(z.Pool(), servesResource(app))
+	client := replication.NewClient(m, cfg.ReplicationPort)
+	jobs := newJobs()
+
+	e.POST("/replication/bases/:dataset", func(c *echo.Context) error {
+		err := recv.Recv(c.Request().Context(), c.Param("dataset"), c.Request().Body)
+		return replicationError(c, err, nil)
+	})
+
+	e.GET("/replication/bases/:dataset/resume", func(c *echo.Context) error {
+		token, err := recv.ResumeToken(c.Request().Context(), c.Param("dataset"))
+		return replicationError(c, err, map[string]string{"token": token})
+	})
+
+	// Build a base here. Asynchronous because a restore runs for hours; the
+	// caller polls the job. Today only the local CLI uses this, but a central
+	// scheduler would drive exactly the same endpoint.
+	e.POST("/replication/resources/:resource/build", func(c *echo.Context) error {
+		resource := c.Param("resource")
+		if !app.HasResource(resource) {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "no such resource"})
+		}
+		id := jobs.start(func(ctx context.Context, _ func(replication.Progress)) error {
+			return app.CreateBaseAndSnap(ctx, resource, false)
+		})
+		return c.JSON(http.StatusAccepted, map[string]string{"job": id})
+	})
+
+	// Push an already-built base to explicit targets. The targets come from the
+	// request rather than only from replicate_to so that a scheduler can steer
+	// replication without rewriting config files on every host.
+	e.POST("/replication/resources/:resource/replicate", func(c *echo.Context) error {
+		resource := c.Param("resource")
+		var body struct {
+			Targets []string `json:"targets"`
+			Dataset string   `json:"dataset"`
+		}
+		if err := c.Bind(&body); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		dataset := body.Dataset
+		if dataset == "" {
+			latest, err := latestBase(c.Request().Context(), z, resource)
+			if err != nil {
+				return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+			}
+			dataset = latest
+		}
+		targets := body.Targets
+		if len(targets) == 0 {
+			r, ok := app.GetResource(resource)
+			if !ok {
+				return c.JSON(http.StatusNotFound, map[string]string{"error": "no such resource"})
+			}
+			targets = r.ReplicateTo
+		}
+		id := jobs.start(func(ctx context.Context, report func(replication.Progress)) error {
+			return replication.PushAll(ctx, client, z.Pool(), dataset, targets, report)
+		})
+		return c.JSON(http.StatusAccepted, map[string]string{"job": id, "dataset": dataset})
+	})
+
+	// Listing exists so a restarted caller can find work it no longer has ids
+	// for. Without it a scheduler that lost its state could not tell a transfer
+	// still running from one that never started, and would try again -- the
+	// in-flight guard would refuse the duplicate, but as an error rather than
+	// as "already in progress".
+	e.GET("/replication/jobs", func(c *echo.Context) error {
+		return c.JSON(http.StatusOK, jobs.list(c.QueryParam("state")))
+	})
+
+	e.GET("/replication/jobs/:id", func(c *echo.Context) error {
+		j, ok := jobs.get(c.Param("id"))
+		if !ok {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "no such job"})
+		}
+		return c.JSON(http.StatusOK, j)
+	})
+
+	addr := fmt.Sprintf(":%d", cfg.ReplicationPort)
+	ln, err := tls.Listen("tcp", addr, m.ServerTLS())
+	if err != nil {
+		return fmt.Errorf("could not listen for replication on %s: %w", addr, err)
+	}
+	// No read or write timeouts: a base is streamed in a single request that can
+	// run for hours. The client's context bounds it instead.
+	srv := &http.Server{Handler: e}
+	go func() {
+		<-ctx.Done()
+		_ = srv.Close()
+	}()
+	fmt.Println("== Starting Replication Server ==", addr)
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+func servesResource(app *core.Core) func(string) bool {
+	return func(resource string) bool { return app.HasResource(resource) }
+}
+
+func replicationError(c *echo.Context, err error, ok any) error {
+	var rejected *replication.Rejected
+	switch {
+	case err == nil:
+		if ok == nil {
+			return c.NoContent(http.StatusOK)
+		}
+		return c.JSON(http.StatusOK, ok)
+	case errors.As(err, &rejected):
+		return c.JSON(http.StatusForbidden, map[string]string{"error": rejected.Reason})
+	default:
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+}
+
+func latestBase(ctx context.Context, z *zfs.ZFS, resource string) (string, error) {
+	lst, err := z.Load(ctx)
+	if err != nil {
+		return "", err
+	}
+	rx, err := regexp.Compile("^zdap-" + regexp.QuoteMeta(resource) + "-base-")
+	if err != nil {
+		return "", err
+	}
+	var found []string
+	for _, b := range lst.Bases() {
+		if rx.MatchString(b) {
+			found = append(found, b)
+		}
+	}
+	if len(found) == 0 {
+		return "", fmt.Errorf("no bases for resource %q", resource)
+	}
+	sort.Strings(found)
+	return found[len(found)-1], nil
+}
+
+// --- job tracking -----------------------------------------------------------
+
+type job struct {
+	ID       string     `json:"id"`
+	State    string     `json:"state"` // running | done | failed
+	Started  time.Time  `json:"started"`
+	Finished *time.Time `json:"finished,omitempty"`
+	Error    string     `json:"error,omitempty"`
+
+	// Progress per peer, so a scheduler can tell a slow transfer from a stuck
+	// one rather than only seeing "running".
+	Progress map[string]replication.Progress `json:"progress,omitempty"`
+}
+
+type jobRegistry struct {
+	mu   sync.Mutex
+	jobs map[string]*job
+}
+
+func newJobs() *jobRegistry { return &jobRegistry{jobs: map[string]*job{}} }
+
+func (r *jobRegistry) start(fn func(context.Context, func(replication.Progress)) error) string {
+	id := newJobID()
+	j := &job{ID: id, State: "running", Started: time.Now(), Progress: map[string]replication.Progress{}}
+	r.mu.Lock()
+	r.jobs[id] = j
+	r.prune()
+	r.mu.Unlock()
+
+	report := func(p replication.Progress) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		j.Progress[p.Peer] = p
+	}
+
+	go func() {
+		// Deliberately not the request context: the work outlives the request
+		// that asked for it, and a poll-and-disconnect must not cancel a restore.
+		err := fn(context.Background(), report)
+		now := time.Now()
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		j.Finished = &now
+		if err != nil {
+			j.State, j.Error = "failed", err.Error()
+			return
+		}
+		j.State = "done"
+	}()
+	return id
+}
+
+// keepFinished caps how many completed jobs are remembered. Nothing removed
+// them before, so a daemon replicating nightly accumulated them for its whole
+// lifetime. Running jobs are never pruned.
+const keepFinished = 100
+
+// prune drops the oldest finished jobs once there are more than keepFinished.
+// Caller holds the lock.
+func (r *jobRegistry) prune() {
+	var finished []*job
+	for _, j := range r.jobs {
+		if j.State != "running" {
+			finished = append(finished, j)
+		}
+	}
+	if len(finished) <= keepFinished {
+		return
+	}
+	sort.Slice(finished, func(i, k int) bool { return finished[i].Started.After(finished[k].Started) })
+	for _, j := range finished[keepFinished:] {
+		delete(r.jobs, j.ID)
+	}
+}
+
+// list returns jobs newest first, optionally filtered by state.
+func (r *jobRegistry) list(state string) []job {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]job, 0, len(r.jobs))
+	for _, j := range r.jobs {
+		if state != "" && j.State != state {
+			continue
+		}
+		out = append(out, j.copy())
+	}
+	sort.Slice(out, func(i, k int) bool { return out[i].Started.After(out[k].Started) })
+	return out
+}
+
+func (r *jobRegistry) get(id string) (job, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	j, ok := r.jobs[id]
+	if !ok {
+		return job{}, false
+	}
+	return j.copy(), true
+}
+
+// copy detaches a job from the registry. The Progress map is rebuilt because
+// the caller marshals it while the transfer keeps writing to it.
+func (j *job) copy() job {
+	out := *j
+	out.Progress = make(map[string]replication.Progress, len(j.Progress))
+	for k, v := range j.Progress {
+		out.Progress[k] = v
+	}
+	return out
+}
+
+// newJobID uses crypto/rand rather than the package's math/rand helper: job ids
+// are handed out over the network, and a guessable id lets a peer poll jobs it
+// did not start.
+func newJobID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand failing is not something to paper over with a weak id.
+		panic(fmt.Sprintf("could not generate job id: %v", err))
+	}
+	return hex.EncodeToString(b[:])
+}

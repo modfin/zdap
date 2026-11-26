@@ -1,7 +1,6 @@
 package servermodel
 
 import (
-	"github.com/kraudcloud/go-libzfs/v2"
 	"github.com/modfin/zdap"
 )
 
@@ -15,5 +14,4 @@ type ServerInternalSnapshot struct {
 }
 type ServerInternalClone struct {
 	zdap.PublicClone
-	Dataset *zfs.Dataset
 }
